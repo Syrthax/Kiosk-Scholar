@@ -16,7 +16,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src http://127.0.0.1:8000; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src blob:"
     }
   },
   "bundle": {
