@@ -229,19 +229,25 @@ function renderSummary(summaryData) {
 
 // ── Jump to source page ──
 function jumpToPage(pageNum) {
-  // Scroll the PDF canvas viewer to the page
+  // Scroll the PDF canvas viewer to the correct page without switching tabs
   const pdfViewer = document.getElementById("pdf-viewer");
   const pdfPageEl = pdfViewer?.querySelector(`.pdf-page-wrapper[data-page="${pageNum}"]`);
   if (pdfPageEl) {
     pdfPageEl.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // Briefly flash a highlight ring around the page so the user knows where they landed
+    pdfPageEl.style.transition = "box-shadow 0.2s ease";
+    pdfPageEl.style.boxShadow = "0 0 0 3px var(--accent), 0 10px 48px rgba(0,0,0,.6)";
+    setTimeout(() => {
+      pdfPageEl.style.boxShadow = "";
+      setTimeout(() => { pdfPageEl.style.transition = ""; }, 300);
+    }, 1800);
   }
 
-  // Also highlight in sources tab
-  activateAiTab("ai-sources-tab");
+  // Highlight the matching block in the Sources sidebar (without switching to it)
   const sidebar = document.getElementById("text-sidebar");
-  const block = sidebar.querySelector(`.page-block[data-page="${pageNum}"]`);
+  const block = sidebar?.querySelector(`.page-block[data-page="${pageNum}"]`);
   if (block) {
-    block.scrollIntoView({ behavior: "smooth", block: "start" });
     block.classList.add("highlight");
     setTimeout(() => block.classList.remove("highlight"), 2200);
   }
@@ -370,6 +376,7 @@ window.addEventListener("DOMContentLoaded", () => {
   initCollapseToggles();
   initInsights();
   initNarration();
+  initSettings();
 
   const importBtn  = document.getElementById("import-pdf-btn");
   const uploadBtn  = document.getElementById("upload-btn");
@@ -922,3 +929,83 @@ function escapeHTML(str) {
   div.textContent = str;
   return div.innerHTML.replace(/\n/g, "<br>");
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Theme management (Light / Dark / Auto)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const THEME_KEY = 'ks-theme';
+
+/**
+ * Apply the resolved theme to <html data-theme>.
+ * @param {'light'|'dark'|'auto'} mode
+ */
+function applyTheme(mode) {
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const useDark = mode === 'dark' || (mode === 'auto' && prefersDark);
+  if (useDark) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+}
+
+/**
+ * Persist and apply a theme mode, then update button active states.
+ * @param {'light'|'dark'|'auto'} mode
+ */
+function setTheme(mode) {
+  localStorage.setItem(THEME_KEY, mode);
+  applyTheme(mode);
+  updateThemeBtns(mode);
+}
+
+/** Highlight the correct theme button in the settings modal. */
+function updateThemeBtns(mode) {
+  document.querySelectorAll('.theme-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.themeMode === mode);
+  });
+}
+
+/** Initialise the settings modal and theme logic. */
+function initSettings() {
+  const openBtn  = document.getElementById('settings-btn');
+  const modal    = document.getElementById('settings-modal');
+  const closeBtn = document.getElementById('settings-modal-close');
+  const backdrop = modal?.querySelector('.settings-modal-backdrop');
+
+  if (!modal) return;
+
+  // Open
+  openBtn?.addEventListener('click', () => {
+    modal.classList.remove('hidden');
+    const current = localStorage.getItem(THEME_KEY) || 'auto';
+    updateThemeBtns(current);
+  });
+
+  // Close
+  const closeModal = () => modal.classList.add('hidden');
+  closeBtn?.addEventListener('click', closeModal);
+  backdrop?.addEventListener('click', closeModal);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
+  });
+
+  // Theme buttons
+  document.querySelectorAll('.theme-btn').forEach((btn) => {
+    btn.addEventListener('click', () => setTheme(btn.dataset.themeMode));
+  });
+
+  // Listen to OS preference changes (for Auto mode)
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    const current = localStorage.getItem(THEME_KEY) || 'auto';
+    if (current === 'auto') applyTheme('auto');
+  });
+
+  // Apply the saved theme on load (the inline script in HTML already does this
+  // for the very first paint, but we also need to mark the active button)
+  const saved = localStorage.getItem(THEME_KEY) || 'auto';
+  applyTheme(saved);
+  updateThemeBtns(saved);
+}
+

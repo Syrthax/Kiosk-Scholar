@@ -48,7 +48,7 @@
           <span class="ollama-dot"></span>
           <span id="ollama-label">Checking…</span>
         </div>
-        <div class="nav-item settings-item">
+        <div id="settings-btn" class="nav-item settings-item" title="Open settings">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
           <span class="nav-label">Settings</span>
         </div>
@@ -216,5 +216,58 @@
         </div>
       </div>
     </div>
+
+    <!-- ── Settings Modal ── -->
+    <div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-label="Settings">
+      <div class="settings-modal-backdrop"></div>
+      <div class="settings-modal-card">
+        <div class="settings-modal-header">
+          <span class="settings-modal-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+            Settings
+          </span>
+          <button id="settings-modal-close" class="settings-modal-close" title="Close">✕</button>
+        </div>
+        <div class="settings-modal-body">
+          <!-- Appearance section -->
+          <div class="settings-section">
+            <div class="settings-section-label">Appearance</div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <span class="settings-row-title">Theme</span>
+                <span class="settings-row-sub">Choose how Kiosk-Scholar looks</span>
+              </div>
+              <div class="theme-toggle-group" role="group" aria-label="Theme selection">
+                <button class="theme-btn" data-theme-mode="light" title="Light mode">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                  Light
+                </button>
+                <button class="theme-btn" data-theme-mode="dark" title="Dark mode">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                  Dark
+                </button>
+                <button class="theme-btn" data-theme-mode="auto" title="Follow system">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  Auto
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inline script: apply saved theme ASAP to avoid flash of wrong theme -->
+    <script>
+      (function () {
+        var saved = localStorage.getItem('ks-theme') || 'auto';
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (saved === 'dark' || (saved === 'auto' && prefersDark)) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+          document.documentElement.removeAttribute('data-theme');
+        }
+      })();
+    </script>
   </body>
 </html>

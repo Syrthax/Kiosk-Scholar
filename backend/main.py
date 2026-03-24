@@ -229,7 +229,36 @@ async def summarize(req: SummarizeRequest = SummarizeRequest()):
         lines = [l.strip('-•* \t') for l in cleaned.split('\n') if l.strip('-•* \t')]
         summary = [{"point": l, "page": 1} for l in lines[:12]] if lines else [{"point": cleaned[:500], "page": 1}]
 
-    return {"summary": summary}
+    # ── Normalise every item so it is always {"point": str, "page": int} ──
+    # The LLM sometimes returns an array of JSON-encoded strings like
+    # '{"point": "...", "page": 1}' instead of actual objects.
+    normalised = []
+    for item in summary:
+        if isinstance(item, str):
+            # Try to parse the string as a JSON object
+            item_stripped = item.strip()
+            try:
+                parsed_item = json.loads(item_stripped)
+                if isinstance(parsed_item, dict):
+                    item = parsed_item
+                else:
+                    item = {"point": item_stripped, "page": 1}
+            except (json.JSONDecodeError, ValueError):
+                item = {"point": item_stripped, "page": 1}
+
+        if isinstance(item, dict):
+            point = str(item.get("point") or item.get("summary") or item.get("text") or "").strip()
+            try:
+                page = int(item.get("page") or item.get("page_number") or 1)
+            except (TypeError, ValueError):
+                page = 1
+            if point:
+                normalised.append({"point": point, "page": page})
+
+    if not normalised:
+        normalised = [{"point": "Could not parse summary.", "page": 1}]
+
+    return {"summary": normalised}
 
 
 class ExplainRequest(BaseModel):
