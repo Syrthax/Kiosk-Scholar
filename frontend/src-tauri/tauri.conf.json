@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.ritvik-malhotra.frontend",
   "build": {
-    "frontendDist": "../src"
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../src",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "withGlobalTauri": true,
@@ -15,9 +18,8 @@
         "height": 800
       }
     ],
-    "security": {
-      "csp": "default-src 'self'; connect-src http://127.0.0.1:8000; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src blob:"
-    }
+    "security": {}
+    
   },
   "bundle": {
     "active": true,

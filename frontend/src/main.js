@@ -20,7 +20,8 @@ async function checkBackend() {
       ollamaEl.textContent = "⚠️ Ollama offline";
       ollamaEl.className = "backend-status error";
     }
-  } catch {
+  } catch (err) {
+    console.error("Health check failed:", err);
     statusEl.textContent = "❌ Backend unreachable";
     statusEl.className = "backend-status error";
     ollamaEl.textContent = "❌ Ollama unknown";
