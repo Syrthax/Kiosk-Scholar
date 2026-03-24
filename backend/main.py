@@ -9,7 +9,7 @@ import re
 app = FastAPI(title="Kiosk-Scholar API")
 
 OLLAMA_URL = "http://127.0.0.1:11434"
-MODEL = "llama3.2:latest"  # lightweight model for hackathon
+MODEL = "llama3.2:latest"  # preferred model; auto-detects fallback
 
 # Allow Tauri frontend (local origin) to call the API
 app.add_middleware(
@@ -23,11 +23,29 @@ app.add_middleware(
 last_pdf_pages: list[dict] = []
 
 
+# ── Helper: get active model (auto-detect if preferred isn't available) ──
+async def get_model() -> str:
+    """Return the best available model name."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{OLLAMA_URL}/api/tags")
+            models = [m["name"] for m in r.json().get("models", [])]
+            if MODEL in models:
+                return MODEL
+            # Fallback: first available model
+            if models:
+                return models[0]
+    except Exception:
+        pass
+    return MODEL  # optimistic fallback
+
+
 # ── Helper: call Ollama ──
 async def ollama_generate(prompt: str, system: str = "") -> str:
     """Send a prompt to Ollama and return the response text."""
+    active_model = await get_model()
     payload = {
-        "model": MODEL,
+        "model": active_model,
         "prompt": prompt,
         "stream": False,
     }
@@ -72,16 +90,21 @@ def retrieve_relevant(chunks: list[dict], query: str, top_k: int = 5) -> list[di
 @app.get("/health")
 async def health():
     ollama_ok = False
+    models = []
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{OLLAMA_URL}/api/tags")
-            ollama_ok = r.status_code == 200
+            if r.status_code == 200:
+                ollama_ok = True
+                models = [m["name"] for m in r.json().get("models", [])]
     except Exception:
         pass
     return {
         "status": "ok",
         "message": "Kiosk-Scholar backend is running",
         "ollama": ollama_ok,
+        "models": models,
+        "active_model": models[0] if models else None,
     }
 
 

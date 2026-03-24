@@ -10,9 +10,12 @@ async function checkBackend() {
     statusEl.textContent = `✅ Backend OK`;
     statusEl.className = "backend-status ok";
 
-    if (data.ollama) {
-      ollamaEl.textContent = "✅ Ollama OK";
+    if (data.ollama && data.models && data.models.length > 0) {
+      ollamaEl.textContent = `✅ Ollama: ${data.active_model || data.models[0]}`;
       ollamaEl.className = "backend-status ok";
+    } else if (data.ollama) {
+      ollamaEl.textContent = "⚠️ Ollama: no models";
+      ollamaEl.className = "backend-status error";
     } else {
       ollamaEl.textContent = "⚠️ Ollama offline";
       ollamaEl.className = "backend-status error";
