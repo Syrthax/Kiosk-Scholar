@@ -3,3 +3,4 @@ uvicorn[standard]
 python-multipart
 pymupdf
 httpx
+pywin32  # Required for Windows SAPI text-to-speech

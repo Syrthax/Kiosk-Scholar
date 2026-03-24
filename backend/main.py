@@ -5,6 +5,11 @@ import fitz  # PyMuPDF
 import httpx
 import json
 import re
+import math
+from collections import Counter
+
+# Import TTS module for voice narration
+from tts import get_tts_engine, TTSState
 
 app = FastAPI(title="Kiosk-Scholar API")
 
@@ -262,3 +267,207 @@ async def explain(req: ExplainRequest):
         raise HTTPException(status_code=500, detail=f"Ollama error: {e}")
 
     return {"explanation": raw.strip()}
+
+
+# ── Common English stop-words to filter out of keyword counts ──
+_STOPWORDS = {
+    "the","a","an","and","or","but","in","on","at","to","for","of","with",
+    "by","from","is","are","was","were","be","been","being","have","has",
+    "had","do","does","did","will","would","could","should","may","might",
+    "shall","can","that","this","these","those","it","its","they","them",
+    "their","there","then","than","so","as","if","not","no","nor","yet",
+    "both","either","neither","each","few","more","most","other","some",
+    "such","into","through","during","before","after","above","below",
+    "between","out","off","over","under","again","further","once","which",
+    "who","whom","what","when","where","why","how","all","any","about",
+    "also","just","he","she","we","you","i","his","her","our","your","my",
+    "up","down","get","got","make","made","take","taken","use","used",
+    "also","while","within","without","among","along","upon","whether",
+}
+
+
+@app.get("/insights")
+async def insights():
+    """Return structured analytics for the last uploaded PDF."""
+    if not last_pdf_pages:
+        raise HTTPException(status_code=400, detail="No PDF uploaded yet")
+
+    # ── Per-page word counts ──
+    page_word_counts = []
+    all_words: list[str] = []
+
+    for p in last_pdf_pages:
+        raw_words = re.findall(r"[a-zA-Z']+", p["content"].lower())
+        filtered = [w for w in raw_words if len(w) > 2 and w not in _STOPWORDS]
+        page_word_counts.append({"page": p["page"], "words": len(raw_words), "content_words": len(filtered)})
+        all_words.extend(filtered)
+
+    # ── Top 10 global keywords ──
+    top_keywords = [{"word": w, "count": c} for w, c in Counter(all_words).most_common(10)]
+
+    # ── Reading-time estimate (avg 238 wpm) ──
+    total_words = sum(p["words"] for p in page_word_counts)
+    reading_time_min = round(total_words / 238, 1)
+
+    # ── Top keywords per page (for heatmap-style bar chart) ──
+    page_top_word = []
+    for p in last_pdf_pages:
+        raw_words = re.findall(r"[a-zA-Z']+", p["content"].lower())
+        filtered = [w for w in raw_words if len(w) > 2 and w not in _STOPWORDS]
+        if filtered:
+            top = Counter(filtered).most_common(1)[0]
+            page_top_word.append({"page": p["page"], "word": top[0], "count": top[1]})
+        else:
+            page_top_word.append({"page": p["page"], "word": "", "count": 0})
+
+    # ── Lexical diversity per page (unique / total content words) ──
+    lexical_diversity = []
+    for p in last_pdf_pages:
+        raw_words = re.findall(r"[a-zA-Z']+", p["content"].lower())
+        filtered = [w for w in raw_words if len(w) > 2 and w not in _STOPWORDS]
+        diversity = round(len(set(filtered)) / len(filtered), 3) if filtered else 0
+        lexical_diversity.append({"page": p["page"], "diversity": diversity})
+
+    return {
+        "total_pages": len(last_pdf_pages),
+        "total_words": total_words,
+        "reading_time_min": reading_time_min,
+        "page_word_counts": page_word_counts,
+        "top_keywords": top_keywords,
+        "page_top_word": page_top_word,
+        "lexical_diversity": lexical_diversity,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Text-to-Speech (TTS) Endpoints
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TTSRequest(BaseModel):
+    text: str
+
+
+class TTSVolumeRequest(BaseModel):
+    volume: float  # 0.0 to 1.0
+
+
+class TTSRateRequest(BaseModel):
+    rate: int  # words per minute (80-200 recommended)
+
+
+@app.post("/tts/speak")
+async def tts_speak(req: TTSRequest):
+    """
+    Start speaking the provided text.
+    
+    This is non-blocking - returns immediately while speech happens in background.
+    If already speaking, stops current speech and starts new.
+    """
+    text = req.text.strip() if req.text else ""
+    
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided")
+    
+    engine = get_tts_engine()
+    
+    try:
+        success = engine.speak(text)
+        if success:
+            return {"status": "speaking", "message": "Speech started"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to start speech")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS error: {str(e)}")
+
+
+@app.post("/tts/stop")
+async def tts_stop():
+    """
+    Stop current speech immediately.
+    """
+    engine = get_tts_engine()
+    engine.stop()
+    return {"status": "stopped", "message": "Speech stopped"}
+
+
+@app.get("/tts/status")
+async def tts_status():
+    """
+    Get current TTS status.
+    """
+    engine = get_tts_engine()
+    return {
+        "state": engine.state.value,
+        "is_speaking": engine.is_speaking,
+        "volume": engine.volume,
+        "rate": engine.rate,
+    }
+
+
+@app.post("/tts/volume")
+async def tts_set_volume(req: TTSVolumeRequest):
+    """
+    Set TTS volume (0.0 to 1.0).
+    
+    Takes effect immediately, even during speech.
+    """
+    volume = max(0.0, min(1.0, req.volume))
+    engine = get_tts_engine()
+    engine.volume = volume
+    return {"status": "ok", "volume": engine.volume}
+
+
+@app.post("/tts/rate")
+async def tts_set_rate(req: TTSRateRequest):
+    """
+    Set TTS speech rate (words per minute).
+    
+    Takes effect on next speak() call.
+    Recommended range: 80-200 wpm.
+    """
+    rate = max(50, min(300, req.rate))
+    engine = get_tts_engine()
+    engine.rate = rate
+    return {"status": "ok", "rate": engine.rate}
+
+
+@app.post("/tts/speak-page")
+async def tts_speak_page(page_number: int = 1):
+    """
+    Speak the content of a specific page from the last uploaded PDF.
+    
+    Args:
+        page_number: Page number (1-indexed)
+    """
+    if not last_pdf_pages:
+        raise HTTPException(status_code=400, detail="No PDF uploaded yet")
+    
+    if page_number < 1 or page_number > len(last_pdf_pages):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Page {page_number} not found. PDF has {len(last_pdf_pages)} pages."
+        )
+    
+    page_content = last_pdf_pages[page_number - 1]["content"]
+    
+    if not page_content.strip():
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Page {page_number} has no text content"
+        )
+    
+    engine = get_tts_engine()
+    
+    try:
+        success = engine.speak(page_content)
+        if success:
+            return {
+                "status": "speaking",
+                "page": page_number,
+                "message": f"Speaking page {page_number}"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to start speech")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS error: {str(e)}")
+

@@ -369,6 +369,7 @@ window.addEventListener("DOMContentLoaded", () => {
   initSelectionExplain();
   initCollapseToggles();
   initInsights();
+  initNarration();
 
   const importBtn  = document.getElementById("import-pdf-btn");
   const uploadBtn  = document.getElementById("upload-btn");
@@ -731,6 +732,189 @@ function initInsights() {
   document.getElementById('chart-modal-close').addEventListener('click', closeChartModal);
   document.querySelector('.chart-modal-backdrop').addEventListener('click', closeChartModal);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeChartModal(); });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Narration (Text-to-Speech) Controls
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _narrationPolling = null;   // interval handle for status polling
+let _narrationActive = false;   // local state mirror
+
+function initNarration() {
+  const playBtn   = document.getElementById('narrate-play-btn');
+  const stopBtn   = document.getElementById('narrate-stop-btn');
+  const volumeWrap = document.getElementById('narrate-volume-wrap');
+  const volumeSlider = document.getElementById('narrate-volume');
+  const statusEl  = document.getElementById('narrate-status');
+
+  if (!playBtn || !stopBtn) return;
+
+  // ── Play button: speak the currently visible page ──
+  playBtn.addEventListener('click', async () => {
+    // Debounce rapid clicks
+    if (playBtn.disabled) return;
+    playBtn.disabled = true;
+    setTimeout(() => { playBtn.disabled = false; }, 400);
+
+    const pageText = getVisiblePageText();
+    if (!pageText) {
+      flashNarrateStatus('No text on this page');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/tts/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: pageText }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'TTS error');
+      }
+      setNarrationUI(true);
+      startNarrationPolling();
+    } catch (err) {
+      console.error('Narration error:', err);
+      flashNarrateStatus('Error starting narration');
+    }
+  });
+
+  // ── Stop button ──
+  stopBtn.addEventListener('click', async () => {
+    if (stopBtn.disabled) return;
+    stopBtn.disabled = true;
+    setTimeout(() => { stopBtn.disabled = false; }, 300);
+
+    try {
+      await fetch(`${BACKEND_URL}/tts/stop`, { method: 'POST' });
+    } catch (err) {
+      console.error('Stop error:', err);
+    }
+    setNarrationUI(false);
+    stopNarrationPolling();
+  });
+
+  // ── Volume slider: real-time volume adjustment ──
+  volumeSlider.addEventListener('input', async () => {
+    const vol = parseInt(volumeSlider.value, 10) / 100;
+    try {
+      await fetch(`${BACKEND_URL}/tts/volume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ volume: vol }),
+      });
+    } catch (err) {
+      console.error('Volume adjust error:', err);
+    }
+  });
+
+  // Set initial volume on backend
+  fetch(`${BACKEND_URL}/tts/volume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ volume: 0.8 }),
+  }).catch(() => {});
+}
+
+/**
+ * Get the extracted text for the page currently most visible in the PDF viewer.
+ * Falls back to all visible page text blocks in the Sources sidebar.
+ */
+function getVisiblePageText() {
+  const viewer = document.getElementById('pdf-viewer');
+  if (!viewer) return '';
+
+  // Find the page wrapper most visible in the viewport
+  const wrappers = viewer.querySelectorAll('.pdf-page-wrapper[data-page]');
+  let bestPage = 1;
+  let bestVisible = 0;
+
+  wrappers.forEach((w) => {
+    const rect = w.getBoundingClientRect();
+    const viewerRect = viewer.getBoundingClientRect();
+    const top = Math.max(rect.top, viewerRect.top);
+    const bot = Math.min(rect.bottom, viewerRect.bottom);
+    const visible = Math.max(0, bot - top);
+    if (visible > bestVisible) {
+      bestVisible = visible;
+      bestPage = parseInt(w.dataset.page, 10);
+    }
+  });
+
+  // Get text from the Sources sidebar (extracted text)
+  const pageBlock = document.querySelector(`#text-sidebar .page-block[data-page="${bestPage}"] .page-text`);
+  if (pageBlock && pageBlock.textContent.trim()) {
+    return pageBlock.textContent.trim();
+  }
+
+  return '';
+}
+
+/**
+ * Update narration UI between playing/idle states
+ */
+function setNarrationUI(speaking) {
+  _narrationActive = speaking;
+  const playBtn    = document.getElementById('narrate-play-btn');
+  const stopBtn    = document.getElementById('narrate-stop-btn');
+  const volumeWrap = document.getElementById('narrate-volume-wrap');
+  const statusEl   = document.getElementById('narrate-status');
+
+  if (speaking) {
+    playBtn.classList.add('hidden');
+    stopBtn.classList.remove('hidden');
+    volumeWrap.classList.remove('hidden');
+    statusEl.textContent = '● Speaking';
+    statusEl.classList.remove('hidden');
+    stopBtn.classList.add('narrate-active');
+  } else {
+    playBtn.classList.remove('hidden');
+    stopBtn.classList.add('hidden');
+    volumeWrap.classList.add('hidden');
+    statusEl.classList.add('hidden');
+    stopBtn.classList.remove('narrate-active');
+  }
+}
+
+/**
+ * Show a brief status flash on the narration bar
+ */
+function flashNarrateStatus(msg) {
+  const statusEl = document.getElementById('narrate-status');
+  if (!statusEl) return;
+  statusEl.textContent = msg;
+  statusEl.classList.remove('hidden');
+  setTimeout(() => { statusEl.classList.add('hidden'); }, 2500);
+}
+
+/**
+ * Poll the backend for TTS status so UI stays in sync
+ * (e.g., narration finishes naturally → update buttons)
+ */
+function startNarrationPolling() {
+  stopNarrationPolling();
+  _narrationPolling = setInterval(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/tts/status`);
+      const data = await res.json();
+      if (!data.is_speaking && _narrationActive) {
+        setNarrationUI(false);
+        stopNarrationPolling();
+      }
+    } catch {
+      // Backend unreachable — stop polling
+      stopNarrationPolling();
+    }
+  }, 800);
+}
+
+function stopNarrationPolling() {
+  if (_narrationPolling) {
+    clearInterval(_narrationPolling);
+    _narrationPolling = null;
+  }
 }
 
 function escapeHTML(str) {
