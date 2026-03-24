@@ -9,65 +9,165 @@
   </head>
 
   <body>
-    <header class="app-header">
-      <span class="app-title">📚 Kiosk-Scholar</span>
-      <div class="header-right">
-        <div id="ollama-status" class="backend-status">Ollama: checking…</div>
-        <div id="backend-status" class="backend-status">Checking backend…</div>
+    <!-- ── Left Sidebar Nav ── -->
+    <nav class="sidebar-nav">
+      <div class="nav-brand">
+        <div class="nav-brand-icon">K</div>
+        <div>
+          <div class="nav-brand-name">Kiosk-Scholar</div>
+          <div class="nav-brand-sub">AI-PDF Reader</div>
+        </div>
       </div>
-    </header>
 
-    <div class="app-layout">
-      <!-- Left: PDF upload + viewer -->
-      <section class="panel-left">
-        <div id="upload-area" class="upload-area">
-          <input type="file" id="pdf-input" accept=".pdf" hidden />
-          <button id="upload-btn" class="upload-btn">📄 Choose PDF</button>
-          <p class="upload-hint">or drag &amp; drop a PDF here</p>
+      <div class="nav-section-label">MENU</div>
+      <ul class="nav-links">
+        <li class="nav-item active" data-view="upload">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
+          Library
+        </li>
+        <li class="nav-item" data-view="reader">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Analysis
+        </li>
+        <li class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>
+          Recent
+        </li>
+        <li class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          Collections
+        </li>
+      </ul>
+
+      <div class="nav-footer">
+        <!-- Ollama status badge -->
+        <div id="ollama-status" class="ollama-badge">
+          <span class="ollama-dot"></span>
+          <span id="ollama-label">Checking…</span>
         </div>
-
-        <div id="pdf-info" class="pdf-info hidden">
-          <span id="pdf-name"></span>
-          <span id="pdf-pages"></span>
-          <button id="summarize-btn" class="action-btn" disabled>🤖 Summarize</button>
+        <div class="nav-item settings-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+          Settings
         </div>
+      </div>
+    </nav>
 
-        <div id="pdf-viewer" class="pdf-viewer">
-          <p class="viewer-placeholder">PDF preview will appear here after upload</p>
-        </div>
-      </section>
+    <!-- ── Main Content ── -->
+    <div class="main-area">
 
-      <!-- Middle: AI Summary panel -->
-      <aside class="panel-middle">
-        <div class="sidebar-title">AI Summary</div>
-        <div id="summary-panel" class="summary-panel">
-          <p class="sidebar-placeholder">Upload a PDF and click <strong>🤖 Summarize</strong> to generate an AI summary.</p>
-        </div>
-      </aside>
-
-      <!-- Right: extracted text / explain sidebar -->
-      <aside class="panel-right">
-        <div class="sidebar-tabs">
-          <button class="tab-btn active" data-tab="text-tab">Extracted Text</button>
-          <button class="tab-btn" data-tab="explain-tab">Explain</button>
-        </div>
-
-        <div id="text-tab" class="tab-content active">
-          <div id="text-sidebar" class="text-sidebar">
-            <p class="sidebar-placeholder">Upload a PDF to see its extracted text.</p>
+      <!-- ═══ UPLOAD VIEW ═══ -->
+      <div id="view-upload" class="view active">
+        <div class="topbar">
+          <h2 class="topbar-title">Upload Document</h2>
+          <div class="topbar-right">
+            <div id="backend-status" class="pill pill-neutral">Checking backend…</div>
+            <button id="import-pdf-btn" class="btn-primary">⬆ Import PDF</button>
+            <input type="file" id="pdf-input" accept=".pdf" hidden />
           </div>
         </div>
 
-        <div id="explain-tab" class="tab-content">
-          <div class="explain-input-area">
-            <textarea id="explain-input" class="explain-textarea" placeholder="Paste or type text to explain…" rows="4"></textarea>
-            <button id="explain-btn" class="action-btn">💡 Explain</button>
-          </div>
-          <div id="explain-output" class="explain-output">
-            <p class="sidebar-placeholder">Select text and click Explain to get an AI explanation.</p>
+        <div class="upload-content">
+          <div id="upload-area" class="upload-card">
+            <div class="upload-icon-wrap">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" class="upload-icon"><path d="M28 4H12a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4V20L28 4z"/><polyline points="28 4 28 20 44 20"/></svg>
+            </div>
+            <h3 class="upload-card-title">Drop academic papers here</h3>
+            <p class="upload-card-sub">Upload PDF files. Kiosk-Scholar will automatically extract text and prepare it for AI analysis.</p>
+            <button id="upload-btn" class="btn-primary btn-lg">Select Files</button>
           </div>
         </div>
-      </aside>
+      </div>
+
+      <!-- ═══ READER VIEW ═══ -->
+      <div id="view-reader" class="view">
+        <!-- Reader topbar -->
+        <div class="topbar reader-topbar">
+          <div class="reader-doc-info">
+            <svg class="doc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span id="reader-doc-name" class="reader-doc-name">No document</span>
+          </div>
+          <div id="reader-page-info" class="reader-page-info hidden"></div>
+          <div class="topbar-right">
+            <button id="summarize-btn" class="btn-primary" disabled>🤖 Summarize</button>
+            <button class="btn-secondary" id="back-to-upload-btn">← Back</button>
+          </div>
+        </div>
+
+        <!-- Three-column reader layout -->
+        <div class="reader-layout">
+
+          <!-- PDF Viewer -->
+          <div class="reader-center">
+            <div id="pdf-viewer" class="pdf-viewer">
+              <p class="viewer-placeholder">PDF preview will appear here after upload</p>
+            </div>
+            <!-- Floating tools -->
+            <div class="viewer-tools">
+              <button class="tool-btn" title="Zoom in">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+              </button>
+              <button class="tool-btn" title="Zoom out">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+              </button>
+              <button class="tool-btn" title="Annotate">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: AI Insights panel -->
+          <aside class="ai-panel">
+            <div class="ai-panel-header">
+              <span class="ai-panel-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ai-icon"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                AI Insights
+              </span>
+            </div>
+
+            <!-- Tabs: Summary / Chat / Sources -->
+            <div class="ai-tabs">
+              <button class="ai-tab active" data-tab="ai-summary-tab">Summary</button>
+              <button class="ai-tab" data-tab="ai-explain-tab">Chat</button>
+              <button class="ai-tab" data-tab="ai-sources-tab">Sources</button>
+            </div>
+
+            <!-- Summary tab -->
+            <div id="ai-summary-tab" class="ai-tab-content active">
+              <div id="summary-panel" class="ai-scroll">
+                <p class="empty-state">Upload a PDF and click <strong>Summarize</strong> to generate AI insights.</p>
+              </div>
+            </div>
+
+            <!-- Chat / Explain tab -->
+            <div id="ai-explain-tab" class="ai-tab-content">
+              <div class="explain-input-area">
+                <textarea id="explain-input" class="explain-textarea" placeholder="Ask about this document…" rows="3"></textarea>
+                <button id="explain-btn" class="btn-primary btn-sm">Explain</button>
+              </div>
+              <div id="explain-output" class="ai-scroll">
+                <p class="empty-state">Select text or type a question to get an AI explanation.</p>
+              </div>
+            </div>
+
+            <!-- Sources tab -->
+            <div id="ai-sources-tab" class="ai-tab-content">
+              <div id="text-sidebar" class="ai-scroll">
+                <p class="empty-state">Extracted text will appear here after upload.</p>
+              </div>
+            </div>
+
+            <!-- Ollama model footer -->
+            <div class="ai-panel-footer">
+              <div class="ollama-model-badge">
+                <span class="ollama-pulse"></span>
+                <span id="ollama-model-label">Ollama · checking…</span>
+              </div>
+            </div>
+          </aside>
+
+        </div>
+      </div>
+
     </div>
   </body>
 </html>
