@@ -647,6 +647,177 @@ html, body { height: 100%; background: var(--bg); color: var(--text); overflow: 
 .empty-state.error  { color: var(--red); }
 
 /* ═══════════════════════════
+   INSIGHTS TAB
+═══════════════════════════ */
+.insights-grid {
+  gap: 12px !important;
+}
+
+.insight-stats-strip {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.insight-stat {
+  flex: 1;
+  background: var(--accent-light);
+  border-radius: var(--radius-sm);
+  padding: 10px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.insight-stat-val {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+}
+.insight-stat-lbl {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+
+.insight-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px 12px;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.insight-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent);
+}
+
+.insight-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.insight-card-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.insight-zoom-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: background 0.15s, color 0.15s;
+}
+.insight-zoom-btn:hover { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
+.insight-zoom-btn svg { stroke: currentColor; }
+
+.insight-canvas-wrap {
+  position: relative;
+  height: 160px;
+}
+.insight-canvas-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ═══════════════════════════
+   CHART ZOOM MODAL
+═══════════════════════════ */
+.chart-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chart-modal.hidden { display: none; }
+
+.chart-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.chart-modal-card {
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.25);
+  width: 66.67vw;
+  height: 66.67vh;
+  max-width: 66.67vw;
+  max-height: 66.67vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modal-pop 0.18s cubic-bezier(.34,1.4,.64,1) both;
+}
+@keyframes modal-pop {
+  from { opacity: 0; transform: scale(0.88); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.chart-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.chart-modal-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.chart-modal-close {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  width: 28px; height: 28px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.chart-modal-close:hover { background: var(--surface2); }
+
+.chart-modal-body {
+  flex: 1;
+  padding: 24px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+.chart-modal-body canvas {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* ═══════════════════════════
    COLLAPSIBLE SIDEBARS
 ═══════════════════════════ */
 

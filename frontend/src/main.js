@@ -1,4 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import { Chart, registerables } from 'chart.js';
+Chart.register(...registerables);
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url
@@ -365,6 +368,7 @@ window.addEventListener("DOMContentLoaded", () => {
   checkBackend();
   initSelectionExplain();
   initCollapseToggles();
+  initInsights();
 
   const importBtn  = document.getElementById("import-pdf-btn");
   const uploadBtn  = document.getElementById("upload-btn");
@@ -375,7 +379,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // AI panel tab switching
   document.querySelectorAll(".ai-tab").forEach((btn) => {
-    btn.addEventListener("click", () => activateAiTab(btn.dataset.tab));
+    btn.addEventListener("click", () => {
+      activateAiTab(btn.dataset.tab);
+      if (btn.dataset.tab === "ai-insights-tab") loadInsights();
+    });
   });
 
   // Nav view switching
@@ -473,6 +480,258 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 });
+
+// ── Insights ──
+const ACCENT   = '#5b4cf5';
+const ACCENT2  = '#8b7cf8';
+const GREEN    = '#16a34a';
+const ORANGE   = '#ea580c';
+const TEAL     = '#0891b2';
+const PALETTE  = [ACCENT, ACCENT2, TEAL, GREEN, ORANGE, '#db2777', '#65a30d', '#d97706', '#7c3aed', '#0f766e'];
+
+// Track chart instances so we can destroy before re-render
+const _chartInstances = {};
+
+function destroyChart(id) {
+  if (_chartInstances[id]) {
+    _chartInstances[id].destroy();
+    delete _chartInstances[id];
+  }
+}
+
+// ── Build a small "insight card" with a canvas inside ──
+function makeInsightCard(id, title) {
+  const card = document.createElement('div');
+  card.className = 'insight-card';
+  card.dataset.chartId = id;
+  card.dataset.chartTitle = title;
+
+  const header = document.createElement('div');
+  header.className = 'insight-card-header';
+
+  const titleEl = document.createElement('span');
+  titleEl.className = 'insight-card-title';
+  titleEl.textContent = title;
+
+  const zoomBtn = document.createElement('button');
+  zoomBtn.className = 'insight-zoom-btn';
+  zoomBtn.title = 'Expand chart';
+  zoomBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+    <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+    <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+  </svg>`;
+
+  header.appendChild(titleEl);
+  header.appendChild(zoomBtn);
+
+  const canvasWrap = document.createElement('div');
+  canvasWrap.className = 'insight-canvas-wrap';
+  const canvas = document.createElement('canvas');
+  canvas.id = id;
+  canvasWrap.appendChild(canvas);
+
+  card.appendChild(header);
+  card.appendChild(canvasWrap);
+
+  // Clicking card or zoom btn opens modal
+  [card, zoomBtn].forEach(el => el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openChartModal(id, title);
+  }));
+
+  return { card, canvas };
+}
+
+// ── Open chart in modal ──
+let _modalChart = null;
+
+function openChartModal(sourceId, title) {
+  const sourceChart = _chartInstances[sourceId];
+  if (!sourceChart) return;
+
+  const modal = document.getElementById('chart-modal');
+  const modalCanvas = document.getElementById('chart-modal-canvas');
+  const modalTitle = document.getElementById('chart-modal-title');
+
+  modalTitle.textContent = title;
+  modal.classList.remove('hidden');
+
+  // Destroy previous modal chart
+  if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
+
+  // Clone config from source chart for the modal canvas
+  const srcCfg = sourceChart.config;
+  _modalChart = new Chart(modalCanvas, {
+    type: srcCfg.type,
+    data: JSON.parse(JSON.stringify(srcCfg.data)),
+    options: {
+      ...JSON.parse(JSON.stringify(srcCfg.options || {})),
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        ...(srcCfg.options?.plugins || {}),
+        legend: { ...(srcCfg.options?.plugins?.legend || {}), labels: { font: { size: 13 } } },
+      },
+    },
+  });
+}
+
+function closeChartModal() {
+  document.getElementById('chart-modal').classList.add('hidden');
+  if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
+  document.getElementById('chart-modal-canvas').width = document.getElementById('chart-modal-canvas').width; // reset
+}
+
+// ── Fetch insights from backend & render ──
+async function loadInsights() {
+  const panel = document.getElementById('insights-panel');
+  panel.innerHTML = `<p class='empty-state'>⏳ Generating insights…</p>`;
+
+  let data;
+  try {
+    const res = await fetch(`${BACKEND_URL}/insights`);
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
+    data = await res.json();
+  } catch (err) {
+    panel.innerHTML = `<p class='empty-state error'>❌ ${err.message}</p>`;
+    return;
+  }
+
+  panel.innerHTML = '';
+
+  // ── Stats strip ──
+  const stats = document.createElement('div');
+  stats.className = 'insight-stats-strip';
+  stats.innerHTML = `
+    <div class="insight-stat"><span class="insight-stat-val">${data.total_pages}</span><span class="insight-stat-lbl">Pages</span></div>
+    <div class="insight-stat"><span class="insight-stat-val">${data.total_words.toLocaleString()}</span><span class="insight-stat-lbl">Words</span></div>
+    <div class="insight-stat"><span class="insight-stat-val">${data.reading_time_min} min</span><span class="insight-stat-lbl">Est. Read</span></div>
+  `;
+  panel.appendChild(stats);
+
+  // ── Chart 1: Words per page (bar) ──
+  {
+    destroyChart('chart-words');
+    const { card, canvas } = makeInsightCard('chart-words', 'Words per Page');
+    panel.appendChild(card);
+    _chartInstances['chart-words'] = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: data.page_word_counts.map(p => `P${p.page}`),
+        datasets: [{
+          label: 'Words',
+          data: data.page_word_counts.map(p => p.words),
+          backgroundColor: ACCENT + 'cc',
+          borderColor: ACCENT,
+          borderWidth: 1,
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          y: { beginAtZero: true, ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  }
+
+  // ── Chart 2: Top keywords (horizontal bar) ──
+  {
+    destroyChart('chart-keywords');
+    const { card, canvas } = makeInsightCard('chart-keywords', 'Top Keywords');
+    panel.appendChild(card);
+    _chartInstances['chart-keywords'] = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: data.top_keywords.map(k => k.word),
+        datasets: [{
+          label: 'Occurrences',
+          data: data.top_keywords.map(k => k.count),
+          backgroundColor: PALETTE,
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { font: { size: 10 } } },
+          y: { ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  }
+
+  // ── Chart 3: Lexical diversity per page (line) ──
+  {
+    destroyChart('chart-diversity');
+    const { card, canvas } = makeInsightCard('chart-diversity', 'Lexical Diversity / Page');
+    panel.appendChild(card);
+    _chartInstances['chart-diversity'] = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: data.lexical_diversity.map(p => `P${p.page}`),
+        datasets: [{
+          label: 'Diversity',
+          data: data.lexical_diversity.map(p => p.diversity),
+          borderColor: TEAL,
+          backgroundColor: TEAL + '22',
+          fill: true,
+          tension: 0.35,
+          pointRadius: 3,
+          pointBackgroundColor: TEAL,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          y: { min: 0, max: 1, ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  }
+
+  // ── Chart 4: Content vs total words doughnut ──
+  {
+    destroyChart('chart-doughnut');
+    const { card, canvas } = makeInsightCard('chart-doughnut', 'Content vs. Stop-Words');
+    panel.appendChild(card);
+    const totalContent = data.page_word_counts.reduce((s, p) => s + p.content_words, 0);
+    const totalStop = data.total_words - totalContent;
+    _chartInstances['chart-doughnut'] = new Chart(canvas, {
+      type: 'doughnut',
+      data: {
+        labels: ['Content words', 'Stop-words'],
+        datasets: [{
+          data: [totalContent, totalStop],
+          backgroundColor: [ACCENT + 'dd', '#e5e7eb'],
+          borderWidth: 0,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } },
+        },
+        cutout: '62%',
+      },
+    });
+  }
+}
+
+function initInsights() {
+  // Close modal on backdrop click or close button
+  document.getElementById('chart-modal-backdrop') && document.getElementById('chart-modal-backdrop').addEventListener('click', closeChartModal);
+  document.getElementById('chart-modal-close').addEventListener('click', closeChartModal);
+  document.querySelector('.chart-modal-backdrop').addEventListener('click', closeChartModal);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeChartModal(); });
+}
 
 function escapeHTML(str) {
   const div = document.createElement("div");

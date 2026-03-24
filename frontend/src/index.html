@@ -128,11 +128,12 @@
               <button id="ai-panel-close-btn" class="ai-panel-close-btn" title="Hide AI panel">›</button>
             </div>
 
-            <!-- Tabs: Summary / Chat / Sources -->
+            <!-- Tabs: Summary / Chat / Sources / Insights -->
             <div class="ai-tabs">
               <button class="ai-tab active" data-tab="ai-summary-tab">Summary</button>
               <button class="ai-tab" data-tab="ai-explain-tab">Chat</button>
               <button class="ai-tab" data-tab="ai-sources-tab">Sources</button>
+              <button class="ai-tab" data-tab="ai-insights-tab">Insights</button>
             </div>
 
             <!-- Summary tab -->
@@ -160,6 +161,13 @@
               </div>
             </div>
 
+            <!-- Insights tab -->
+            <div id="ai-insights-tab" class="ai-tab-content">
+              <div id="insights-panel" class="ai-scroll insights-grid">
+                <p class="empty-state">Upload a PDF to generate visual insights.</p>
+              </div>
+            </div>
+
             <!-- Ollama model footer -->
             <div class="ai-panel-footer">
               <div class="ollama-model-badge">
@@ -177,6 +185,20 @@
     <div id="selection-explain-btn" class="selection-explain-btn hidden">
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
       Explain
+    </div>
+
+    <!-- Chart zoom modal -->
+    <div id="chart-modal" class="chart-modal hidden" role="dialog" aria-modal="true">
+      <div class="chart-modal-backdrop"></div>
+      <div class="chart-modal-card">
+        <div class="chart-modal-header">
+          <span id="chart-modal-title" class="chart-modal-title"></span>
+          <button id="chart-modal-close" class="chart-modal-close" title="Close">✕</button>
+        </div>
+        <div class="chart-modal-body">
+          <canvas id="chart-modal-canvas"></canvas>
+        </div>
+      </div>
     </div>
   </body>
 </html>
