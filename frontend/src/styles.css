@@ -57,14 +57,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); overflow: 
   flex-shrink: 0;
 }
 
-.nav-brand-icon {
-  width: 34px; height: 34px;
-  background: var(--accent);
-  color: #fff;
+.nav-brand-logo {
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 800;
-  font-size: 1rem;
+  object-fit: contain;
   flex-shrink: 0;
 }
 
@@ -857,7 +854,7 @@ body.nav-collapsed .nav-label,
 body.nav-collapsed #ollama-label    { display: none; }
 
 body.nav-collapsed .nav-brand       { padding: 12px 4px; justify-content: flex-start; }
-body.nav-collapsed .nav-brand-icon  { width: 28px; height: 28px; font-size: 0.8rem; }
+body.nav-collapsed .nav-brand-logo  { width: 28px; height: 28px; }
 body.nav-collapsed .nav-links       { padding: 0 4px; }
 body.nav-collapsed .nav-item        { justify-content: center; padding: 10px 4px; }
 body.nav-collapsed .nav-footer      { padding: 8px 4px; align-items: center; }
@@ -1198,3 +1195,285 @@ html {
 [data-theme="dark"] .theme-btn.active {
   background: var(--accent-light);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   ONBOARDING BANNER
+═══════════════════════════════════════════════════════════ */
+
+.onboarding-banner {
+  position: fixed;
+  top: 0;
+  left: var(--nav-w);
+  right: 0;
+  z-index: 9000;
+  background: var(--surface);
+  border-bottom: 2px solid var(--accent);
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  padding: 9px 18px;
+  animation: ob-drop 0.22s ease both;
+}
+.onboarding-banner.hidden { display: none !important; }
+
+@keyframes ob-drop {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.onboarding-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.onboarding-icon { font-size: 1rem; flex-shrink: 0; line-height: 1; }
+.onboarding-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+.onboarding-text strong {
+  font-size: 0.83rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.onboarding-text span {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.onboarding-dismiss {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  width: 24px; height: 24px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.onboarding-dismiss:hover { background: var(--surface2); }
+
+body.banner-visible .main-area   { margin-top: 48px; height: calc(100vh - 48px); }
+body.banner-visible .sidebar-nav { padding-top: 48px; }
+body.nav-collapsed .onboarding-banner { left: 52px; }
+
+/* ═══════════════════════════════════════════════════════════
+   AI SETUP PANEL  (Settings modal)
+═══════════════════════════════════════════════════════════ */
+
+/* Let settings scroll if AI section makes it tall */
+.settings-modal-card { max-height: 88vh; }
+.settings-modal-body { max-height: calc(88vh - 58px); overflow-y: auto; }
+
+.ai-setup-panel { display: flex; flex-direction: column; gap: 10px; }
+.ai-setup-loading, .ai-setup-tip { font-size: 0.79rem; color: var(--text-muted); line-height: 1.5; }
+.ai-setup-error  { font-size: 0.79rem; color: var(--red); }
+
+.ai-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
+}
+.ai-status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ai-status-dot.ok   { background: var(--green); }
+.ai-status-dot.warn { background: #f59e0b; }
+.ai-status-dot.bad  { background: var(--red); }
+.ai-status-label { font-size: 0.8rem; font-weight: 600; color: var(--text); }
+.ai-status-value { font-size: 0.78rem; color: var(--text-muted); }
+
+.ai-models-list  { display: flex; flex-direction: column; gap: 4px; }
+.ai-model-item   {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 8px;
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
+}
+.ai-model-dot  { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.ai-model-name { font-size: 0.79rem; font-weight: 500; color: var(--text-2); }
+
+.ai-install-section { display: flex; flex-direction: column; gap: 7px; }
+.ai-install-form    { display: flex; gap: 7px; align-items: center; }
+.ai-model-select {
+  flex: 1;
+  padding: 6px 9px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.79rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.ai-model-select:focus { outline: none; border-color: var(--accent); }
+
+.ai-install-progress        { display: flex; flex-direction: column; gap: 4px; }
+.ai-install-progress.hidden { display: none; }
+.ai-progress-bar-wrap { height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+.ai-progress-bar {
+  height: 100%; background: var(--accent); border-radius: 2px;
+  transition: width 0.4s ease; min-width: 2%;
+}
+.ai-progress-msg { font-size: 0.74rem; color: var(--text-muted); }
+
+.ai-install-link {
+  align-self: flex-start;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+[data-theme="dark"] .ai-model-select { background: var(--surface2); }
+
+/* ── Recent view ─────────────────────────────────────────────────────────── */
+.recent-list-wrap {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.recent-item:hover {
+  background: var(--surface2);
+  border-color: var(--accent);
+  box-shadow: 0 2px 12px rgba(91,76,245,.10);
+}
+.recent-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-light, rgba(91,76,245,.12));
+  flex-shrink: 0;
+}
+.recent-item-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--accent);
+}
+.recent-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+.recent-item-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-item-sub {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+/* ── Credits modal ───────────────────────────────────────────────────────── */
+.credits-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.credits-modal.hidden { display: none; }
+.credits-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  backdrop-filter: blur(4px);
+}
+.credits-modal-card {
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 340px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  overflow: hidden;
+}
+.credits-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.credits-modal-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.credits-modal-body {
+  padding: 24px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.credits-team-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0;
+}
+.credits-names {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.6;
+}
+.credits-modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* ── Settings footer ─────────────────────────────────────────────────────── */
+.settings-footer {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-faint, var(--text-muted));
+}
+

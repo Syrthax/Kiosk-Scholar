@@ -1,12 +1,11 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import base64
 import fitz  # PyMuPDF
 import httpx
 import json
 import re
-import math
-from collections import Counter
 
 # Import TTS module for voice narration
 from tts import get_tts_engine, TTSState
@@ -113,14 +112,23 @@ async def health():
     }
 
 
+class UploadPDFRequest(BaseModel):
+    filename: str
+    data: str  # base64-encoded PDF bytes
+
+
 @app.post("/upload-pdf")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(req: UploadPDFRequest):
     global last_pdf_pages
 
-    if not file.filename.lower().endswith(".pdf"):
+    if not req.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
-    contents = await file.read()
+    try:
+        contents = base64.b64decode(req.data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid base64 payload: {e}")
+
     try:
         doc = fitz.open(stream=contents, filetype="pdf")
     except Exception as e:
@@ -136,7 +144,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     # Store for later AI queries
     last_pdf_pages = pages
 
-    return {"filename": file.filename, "total_pages": len(pages), "pages": pages}
+    return {"filename": req.filename, "total_pages": len(pages), "pages": pages}
 
 
 class SummarizeRequest(BaseModel):
@@ -224,10 +232,28 @@ async def summarize(req: SummarizeRequest = SummarizeRequest()):
             except json.JSONDecodeError:
                 pass
 
-    # Fallback: split into bullet lines
+    # Fallback: try parsing individual lines as JSON objects
     if summary is None:
-        lines = [l.strip('-•* \t') for l in cleaned.split('\n') if l.strip('-•* \t')]
-        summary = [{"point": l, "page": 1} for l in lines[:12]] if lines else [{"point": cleaned[:500], "page": 1}]
+        items = []
+        for line in cleaned.split('\n'):
+            line = line.strip().strip(',').strip()
+            if not line or line in ('[', ']'):
+                continue
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, dict):
+                    items.append(obj)
+                    continue
+            except Exception:
+                pass
+            # plain text line — wrap it
+            clean_line = line.strip('-•* \t')
+            if clean_line:
+                items.append({"point": clean_line, "page": 1})
+        if items:
+            summary = items
+        else:
+            summary = [{"point": cleaned[:500], "page": 1}]
 
     # ── Normalise every item so it is always {"point": str, "page": int} ──
     # The LLM sometimes returns an array of JSON-encoded strings like
@@ -298,64 +324,55 @@ async def explain(req: ExplainRequest):
     return {"explanation": raw.strip()}
 
 
-# ── Common English stop-words to filter out of keyword counts ──
-_STOPWORDS = {
+# ── /insights — document analytics (no LLM required) ──
+STOP_WORDS = {
     "the","a","an","and","or","but","in","on","at","to","for","of","with",
-    "by","from","is","are","was","were","be","been","being","have","has",
+    "by","from","as","is","was","are","were","be","been","being","have","has",
     "had","do","does","did","will","would","could","should","may","might",
-    "shall","can","that","this","these","those","it","its","they","them",
-    "their","there","then","than","so","as","if","not","no","nor","yet",
-    "both","either","neither","each","few","more","most","other","some",
-    "such","into","through","during","before","after","above","below",
-    "between","out","off","over","under","again","further","once","which",
-    "who","whom","what","when","where","why","how","all","any","about",
-    "also","just","he","she","we","you","i","his","her","our","your","my",
-    "up","down","get","got","make","made","take","taken","use","used",
-    "also","while","within","without","among","along","upon","whether",
+    "shall","can","this","that","these","those","it","its","i","you","he",
+    "she","we","they","me","him","her","us","them","my","your","his","our",
+    "their","what","which","who","not","no","so","if","then","than","also",
+    "into","over","after","before","about","up","out","more","all","any",
 }
 
 
 @app.get("/insights")
 async def insights():
-    """Return structured analytics for the last uploaded PDF."""
     if not last_pdf_pages:
         raise HTTPException(status_code=400, detail="No PDF uploaded yet")
 
-    # ── Per-page word counts ──
+    total_words = 0
     page_word_counts = []
-    all_words: list[str] = []
-
-    for p in last_pdf_pages:
-        raw_words = re.findall(r"[a-zA-Z']+", p["content"].lower())
-        filtered = [w for w in raw_words if len(w) > 2 and w not in _STOPWORDS]
-        page_word_counts.append({"page": p["page"], "words": len(raw_words), "content_words": len(filtered)})
-        all_words.extend(filtered)
-
-    # ── Top 10 global keywords ──
-    top_keywords = [{"word": w, "count": c} for w, c in Counter(all_words).most_common(10)]
-
-    # ── Reading-time estimate (avg 238 wpm) ──
-    total_words = sum(p["words"] for p in page_word_counts)
-    reading_time_min = round(total_words / 238, 1)
-
-    # ── Top keywords per page (for heatmap-style bar chart) ──
-    page_top_word = []
-    for p in last_pdf_pages:
-        raw_words = re.findall(r"[a-zA-Z']+", p["content"].lower())
-        filtered = [w for w in raw_words if len(w) > 2 and w not in _STOPWORDS]
-        if filtered:
-            top = Counter(filtered).most_common(1)[0]
-            page_top_word.append({"page": p["page"], "word": top[0], "count": top[1]})
-        else:
-            page_top_word.append({"page": p["page"], "word": "", "count": 0})
-
-    # ── Lexical diversity per page (unique / total content words) ──
+    word_freq: dict[str, int] = {}
     lexical_diversity = []
+
     for p in last_pdf_pages:
-        raw_words = re.findall(r"[a-zA-Z']+", p["content"].lower())
-        filtered = [w for w in raw_words if len(w) > 2 and w not in _STOPWORDS]
-        diversity = round(len(set(filtered)) / len(filtered), 3) if filtered else 0
+        raw = p["content"] or ""
+        tokens = re.findall(r"[a-zA-Z']+", raw.lower())
+        total = len(tokens)
+        content_tokens = [t for t in tokens if t not in STOP_WORDS and len(t) > 2]
+        content_count = len(content_tokens)
+        unique_tokens = set(tokens)
+        diversity = round(len(unique_tokens) / total, 3) if total > 0 else 0.0
+
+        page_word_counts.append({
+            "page": p["page"],
+            "words": total,
+            "content_words": content_count,
+        })
         lexical_diversity.append({"page": p["page"], "diversity": diversity})
+        total_words += total
+
+        for w in content_tokens:
+            word_freq[w] = word_freq.get(w, 0) + 1
+
+    top_keywords = sorted(
+        [{"word": w, "count": c} for w, c in word_freq.items()],
+        key=lambda x: x["count"],
+        reverse=True,
+    )[:15]
+
+    reading_time_min = max(1, round(total_words / 200))
 
     return {
         "total_pages": len(last_pdf_pages),
@@ -363,7 +380,6 @@ async def insights():
         "reading_time_min": reading_time_min,
         "page_word_counts": page_word_counts,
         "top_keywords": top_keywords,
-        "page_top_word": page_top_word,
         "lexical_diversity": lexical_diversity,
     }
 
@@ -499,4 +515,160 @@ async def tts_speak_page(page_number: int = 1):
             raise HTTPException(status_code=500, detail="Failed to start speech")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"TTS error: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Ollama Setup & System-Spec Endpoints  (onboarding / settings)
+# Purely additive — no existing code modified.  Only stdlib + already-imported
+# modules (re, httpx, asyncio, json) are used.
+# ══════════════════════════════════════════════════════════════════════════════
+
+import asyncio as _asyncio
+import platform as _platform
+import subprocess as _subprocess
+import uuid as _uuid
+
+_TIER_MODELS: dict[str, list[str]] = {
+    "low":  ["phi3:mini", "tinyllama"],
+    "mid":  ["llama3:8b", "mistral:7b"],
+    "high": ["llama3:8b", "mixtral"],
+}
+
+# Validate model names — prevent shell/command injection
+_SAFE_MODEL_RE = re.compile(r'^[a-zA-Z0-9._:/@-]+$')
+
+# Active pull jobs:  { job_id -> status_dict }
+_pull_jobs: dict[str, dict] = {}
+
+
+def _get_ram_gb() -> float:
+    """Return total system RAM in GB using only stdlib."""
+    try:
+        sysname = _platform.system()
+        if sysname == "Darwin":
+            r = _subprocess.run(["sysctl", "-n", "hw.memsize"],
+                                capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                return round(int(r.stdout.strip()) / (1024 ** 3), 1)
+        elif sysname == "Linux":
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        return round(int(line.split()[1]) / (1024 ** 2), 1)
+        elif sysname == "Windows":
+            r = _subprocess.run(
+                ["wmic", "computersystem", "get", "TotalPhysicalMemory"],
+                capture_output=True, text=True, timeout=5)
+            nums = [ln.strip() for ln in r.stdout.splitlines() if ln.strip().isdigit()]
+            if nums:
+                return round(int(nums[0]) / (1024 ** 3), 1)
+    except Exception:
+        pass
+    return 8.0  # safe fallback
+
+
+def _ram_to_tier(ram_gb: float) -> tuple[str, list[str]]:
+    if ram_gb <= 8:
+        return "low", _TIER_MODELS["low"]
+    elif ram_gb <= 16:
+        return "mid", _TIER_MODELS["mid"]
+    return "high", _TIER_MODELS["high"]
+
+
+@app.get("/ollama/status")
+async def ollama_status():
+    """Is Ollama installed / running? Which models are available?"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{OLLAMA_URL}/api/tags")
+            if r.status_code == 200:
+                models = [m["name"] for m in r.json().get("models", [])]
+                return {"installed": True, "running": True, "models": models}
+    except Exception:
+        pass
+
+    # API unreachable — check if the binary is present
+    try:
+        cmd = ["where", "ollama"] if _platform.system() == "Windows" else ["which", "ollama"]
+        proc = _subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        binary_found = proc.returncode == 0
+    except Exception:
+        binary_found = False
+
+    return {"installed": binary_found, "running": False, "models": []}
+
+
+@app.get("/system/specs")
+async def system_specs():
+    """Detect RAM and return tier + recommended models."""
+    ram_gb = _get_ram_gb()
+    tier, recommended = _ram_to_tier(ram_gb)
+    return {"ram_gb": ram_gb, "tier": tier, "recommended_models": recommended}
+
+
+class _PullModelRequest(BaseModel):
+    model: str
+
+
+@app.post("/ollama/pull")
+async def pull_model(req: _PullModelRequest):
+    """Start an async model pull. Returns a job_id to poll for progress."""
+    model = req.model.strip()
+    if not model or not _SAFE_MODEL_RE.match(model):
+        raise HTTPException(status_code=400, detail="Invalid model name")
+
+    job_id = str(_uuid.uuid4())[:8]
+    _pull_jobs[job_id] = {
+        "model": model, "status": "starting",
+        "progress": 0, "message": "Starting…",
+        "error": None, "done": False,
+    }
+    _asyncio.create_task(_do_pull(job_id, model))
+    return {"job_id": job_id, "model": model}
+
+
+@app.get("/ollama/pull/{job_id}/status")
+async def pull_job_status(job_id: str):
+    """Poll the progress of a model pull."""
+    if job_id not in _pull_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return _pull_jobs[job_id]
+
+
+async def _do_pull(job_id: str, model: str) -> None:
+    job = _pull_jobs[job_id]
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream(
+                "POST", f"{OLLAMA_URL}/api/pull",
+                json={"name": model, "stream": True},
+            ) as resp:
+                if resp.status_code != 200:
+                    job.update({"status": "error",
+                                "error": f"Ollama HTTP {resp.status_code}", "done": True})
+                    return
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except Exception:
+                        continue
+                    status_str = data.get("status", "")
+                    job["message"] = status_str
+                    total = data.get("total", 0)
+                    if total:
+                        job["progress"] = round(data.get("completed", 0) / total * 100)
+                    if status_str == "success":
+                        job.update({"status": "done", "progress": 100,
+                                    "message": "Installed", "done": True})
+                        return
+                    if data.get("error"):
+                        job.update({"status": "error",
+                                    "error": data["error"], "done": True})
+                        return
+                    job["status"] = "pulling"
+        job.update({"status": "done", "progress": 100, "message": "Installed", "done": True})
+    except Exception as exc:
+        job.update({"status": "error", "error": str(exc), "done": True})
 

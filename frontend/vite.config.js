@@ -10,4 +10,11 @@ export default defineConfig({
     outDir: "../dist",
     emptyOutDir: true,
   },
+  // Prevent Vite's esbuild pre-bundler from rewriting pdfjs-dist's internal
+  // module graph.  Pre-bundling merges the package into a single chunk, which
+  // breaks the relative imports that pdf.worker.min.mjs makes to the main
+  // pdf.mjs library at runtime inside the Worker thread.
+  optimizeDeps: {
+    exclude: ['pdfjs-dist'],
+  },
 });

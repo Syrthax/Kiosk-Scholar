@@ -2,49 +2,101 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).href;
+// ?url tells Vite to register this file as a static asset and return its
+// correct served URL.  The previous `new URL('pdfjs-dist/...', import.meta.url)`
+// approach only works for *relative* paths — Vite does not transform bare-module
+// specifiers in new URL(), so the runtime URL pointed to a non-existent path on
+// the dev server and pdf.js silently fell through to its broken fake-worker path.
+import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
-// ── Backend & Ollama health check ──
+// ── PDF Cache (IndexedDB — stores files so Recents can reopen them) ──
+let _reopenPDF = null; // set inside DOMContentLoaded once handleFile is defined
+
+function _openPdfDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('ks-pdf-cache', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('pdfs');
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror  = e => reject(e.target.error);
+  });
+}
+
+async function storePdfInCache(name, arrayBuffer) {
+  try {
+    const db = await _openPdfDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('pdfs', 'readwrite');
+      tx.objectStore('pdfs').put(arrayBuffer, name);
+      tx.oncomplete = resolve;
+      tx.onerror    = e => reject(e.target.error);
+    });
+  } catch { /* best-effort — ignore failures */ }
+}
+
+async function getPdfFromCache(name) {
+  try {
+    const db = await _openPdfDB();
+    return await new Promise((resolve, reject) => {
+      const tx  = db.transaction('pdfs', 'readonly');
+      const req = tx.objectStore('pdfs').get(name);
+      req.onsuccess = e => resolve(e.target.result || null);
+      req.onerror   = e => reject(e.target.error);
+    });
+  } catch { return null; }
+}
+
+// ── Backend & Ollama health check (self-scheduling) ──
+let _backendPollTimer = null;
+
 async function checkBackend() {
+  clearTimeout(_backendPollTimer);
   const statusEl = document.getElementById("backend-status");
   const ollamaEl = document.getElementById("ollama-status");
   const ollamaLabel = document.getElementById("ollama-label");
   const ollamaModelLabel = document.getElementById("ollama-model-label");
 
+  let online = false;
   try {
-    const res = await fetch(`${BACKEND_URL}/health`);
+    const res = await fetch(`${BACKEND_URL}/health`, {
+      signal: AbortSignal.timeout(4000),
+    });
     const data = await res.json();
 
     statusEl.textContent = "Backend OK";
     statusEl.className = "pill pill-ok";
+    online = true;
 
     if (data.ollama && data.models && data.models.length > 0) {
       const model = data.active_model || data.models[0];
       ollamaEl.className = "ollama-badge ok";
       if (ollamaLabel) ollamaLabel.textContent = "Ollama · online";
       if (ollamaModelLabel) ollamaModelLabel.textContent = `Ollama · ${model}`;
+      syncOnboardingUI(true, data.models);
     } else if (data.ollama) {
       ollamaEl.className = "ollama-badge error";
       if (ollamaLabel) ollamaLabel.textContent = "Ollama · no models";
       if (ollamaModelLabel) ollamaModelLabel.textContent = "Ollama · no models";
+      syncOnboardingUI(true, []);
     } else {
       ollamaEl.className = "ollama-badge error";
       if (ollamaLabel) ollamaLabel.textContent = "Ollama · offline";
       if (ollamaModelLabel) ollamaModelLabel.textContent = "Ollama · offline";
+      syncOnboardingUI(false, []);
     }
   } catch (err) {
-    console.error("Health check failed:", err);
+    console.error("Health check failed:", err.message);
     statusEl.textContent = "Backend unreachable";
     statusEl.className = "pill pill-error";
     if (ollamaEl) ollamaEl.className = "ollama-badge error";
     if (ollamaLabel) ollamaLabel.textContent = "Ollama · unknown";
     if (ollamaModelLabel) ollamaModelLabel.textContent = "Ollama · unknown";
   }
+
+  // Retry fast (3s) while offline; slow heartbeat (30s) once connected
+  _backendPollTimer = setTimeout(checkBackend, online ? 30_000 : 3_000);
 }
 
 // ── View switching ──
@@ -61,14 +113,23 @@ function showView(viewId) {
   });
 }
 
-// ── PDF Upload ──
-async function uploadPDF(file) {
-  const formData = new FormData();
-  formData.append("file", file);
-  const res = await fetch(`${BACKEND_URL}/upload-pdf`, { method: "POST", body: formData });
+// ── PDF Upload (base64 JSON — avoids WKWebView binary FormData corruption) ──
+async function uploadPDF(arrayBuffer, filename) {
+  // Encode binary PDF bytes as base64 so WKWebView can't mangle them
+  const uint8 = new Uint8Array(arrayBuffer);
+  let binary = "";
+  for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+  const data = btoa(binary);
+
+  const res = await fetch(`${BACKEND_URL}/upload-pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename, data }),
+  });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.detail || "Upload failed");
+    const detail = typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail);
+    throw new Error(detail || "Upload failed");
   }
   return res.json();
 }
@@ -104,7 +165,8 @@ async function requestExplain(text) {
 // ── PDF Viewer (pdf.js canvas + textLayer) ──
 let _pdfDoc = null;
 
-async function renderPDFViewer(file) {
+// Accepts a pre-read ArrayBuffer (NOT a File) to avoid double-consuming the blob
+async function renderPDFViewer(arrayBuffer) {
   const viewer = document.getElementById("pdf-viewer");
   viewer.innerHTML = '<p class="viewer-placeholder">Rendering PDF…</p>';
 
@@ -114,8 +176,14 @@ async function renderPDFViewer(file) {
     _pdfDoc = null;
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  // Slice the buffer before handing it to pdf.js.
+  // pdf.js transfers the ArrayBuffer to its Web Worker via postMessage, which
+  // *detaches* (neuters) the original in the main thread.  If we passed the
+  // same reference here that uploadPDF() will use later, uploadPDF would
+  // receive a zero-length detached buffer and throw "Buffer is already detached".
+  // slice(0) creates a cheap independent copy; pdf.js owns and transfers that
+  // copy while the caller's arrayBuffer stays intact for the backend upload.
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer.slice(0) });
   _pdfDoc = await loadingTask.promise;
 
   viewer.innerHTML = "";
@@ -192,8 +260,6 @@ function renderExtractedText(data) {
 }
 
 // ── AI Summary cards ──
-const CARD_LABELS = ["CORE POINT", "KEY INSIGHT", "ANALYSIS", "FINDING", "CONTEXTUAL ANALYSIS"];
-
 function renderSummary(summaryData) {
   const panel = document.getElementById("summary-panel");
   panel.innerHTML = "";
@@ -207,10 +273,6 @@ function renderSummary(summaryData) {
     const card = document.createElement("div");
     card.className = "summary-card";
 
-    const typeLabel = document.createElement("span");
-    typeLabel.className = "card-type-label";
-    typeLabel.textContent = CARD_LABELS[idx % CARD_LABELS.length];
-
     const body = document.createElement("div");
     body.className = "card-body";
     body.textContent = item.point;
@@ -220,7 +282,6 @@ function renderSummary(summaryData) {
     link.innerHTML = `← Link to Source <span style="color:var(--text-faint);font-weight:400;margin-left:4px;">Page ${item.page}</span>`;
     link.addEventListener("click", () => jumpToPage(item.page));
 
-    card.appendChild(typeLabel);
     card.appendChild(body);
     card.appendChild(link);
     panel.appendChild(card);
@@ -378,6 +439,13 @@ window.addEventListener("DOMContentLoaded", () => {
   initNarration();
   initSettings();
 
+  // Onboarding banner buttons
+  document.getElementById('onboarding-dismiss-btn')?.addEventListener('click', _hideBanner);
+  document.getElementById('onboarding-settings-btn')?.addEventListener('click', () => {
+    _hideBanner();
+    document.getElementById('settings-modal')?.classList.remove('hidden');
+    loadAiSetupPanel();
+  });
   const importBtn  = document.getElementById("import-pdf-btn");
   const uploadBtn  = document.getElementById("upload-btn");
   const pdfInput   = document.getElementById("pdf-input");
@@ -396,17 +464,31 @@ window.addEventListener("DOMContentLoaded", () => {
   // Nav view switching
   document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
     item.addEventListener("click", () => {
-      showView(item.dataset.view === "upload" ? "view-upload" : "view-reader");
+      if (item.dataset.view === "upload") {
+        showView("view-upload");
+      } else if (item.dataset.view === "recent") {
+        showView("view-recent");
+        renderRecentView();
+      } else {
+        showView("view-reader");
+      }
     });
   });
 
   // File pickers
-  importBtn.addEventListener("click", () => pdfInput.click());
+  importBtn.addEventListener("click", (e) => { e.stopPropagation(); pdfInput.click(); });
   uploadBtn.addEventListener("click", (e) => { e.stopPropagation(); pdfInput.click(); });
 
   pdfInput.addEventListener("change", () => {
-    if (pdfInput.files[0]) handleFile(pdfInput.files[0]);
+    if (pdfInput.files[0]) {
+      handleFile(pdfInput.files[0]);
+      // Reset so the same file can be re-selected next time
+      pdfInput.value = "";
+    }
   });
+
+  // Clicking anywhere on the upload card also opens the picker
+  uploadArea.addEventListener("click", () => pdfInput.click());
 
   // Drag and drop
   uploadArea.addEventListener("dragover", (e) => {
@@ -455,38 +537,64 @@ window.addEventListener("DOMContentLoaded", () => {
     showView("view-reader");
     document.getElementById("reader-doc-name").textContent = file.name;
     document.getElementById("reader-page-info").classList.add("hidden");
+    saveRecentPDF(file.name);
 
-    renderPDFViewer(file);
+    // ── Step 1: Read file bytes ONCE upfront ──
+    // This prevents the race condition where renderPDFViewer and uploadPDF
+    // both try to consume the same File blob concurrently in Tauri WKWebView.
+    let arrayBuffer;
+    try {
+      arrayBuffer = await file.arrayBuffer();
+    } catch (err) {
+      document.getElementById("pdf-viewer").innerHTML =
+        `<p class="viewer-placeholder">❌ Could not read file: ${err.message}</p>`;
+      return;
+    }
+
+    // Cache for Recents re-open (fire-and-forget)
+    storePdfInCache(file.name, arrayBuffer);
+
+    // ── Step 2: Render PDF client-side FIRST (fully offline, no backend needed) ──
+    try {
+      await renderPDFViewer(arrayBuffer);
+      const pageInfo = document.getElementById("reader-page-info");
+      pageInfo.textContent = `${_pdfDoc.numPages} page${_pdfDoc.numPages !== 1 ? "s" : ""}`;
+      pageInfo.classList.remove("hidden");
+    } catch (err) {
+      document.getElementById("pdf-viewer").innerHTML =
+        `<p class="viewer-placeholder">❌ Failed to render PDF: ${err.message}</p>`;
+      // Don't return — still attempt backend upload for text extraction
+    }
+
+    // ── Step 3: Backend upload using the same bytes (create new Blob to avoid re-read) ──
     showLoading(document.getElementById("summary-panel"), "Uploading & extracting text…");
     showLoading(document.getElementById("text-sidebar"), "Extracting text…");
 
     try {
-      const data = await uploadPDF(file);
-
-      const pageInfo = document.getElementById("reader-page-info");
-      pageInfo.textContent = `${data.total_pages} page${data.total_pages !== 1 ? "s" : ""}`;
-      pageInfo.classList.remove("hidden");
+      // Pass arrayBuffer + filename directly; uploadPDF encodes to base64 JSON
+      const data = await uploadPDF(arrayBuffer, file.name);
 
       renderExtractedText(data);
 
-      // Auto-summarize — no button click required
+      // Auto-summarize
       showLoading(document.getElementById("summary-panel"), "Generating AI summary…");
       try {
         const summaryData = await requestSummary();
         renderSummary(summaryData.summary);
-        // Switch to Summary tab to show the result
         activateAiTab("ai-summary-tab");
       } catch (err) {
         document.getElementById("summary-panel").innerHTML =
           `<p class="empty-state error">❌ Summary failed: ${err.message}</p>`;
       }
     } catch (err) {
+      console.error("[upload] error:", err.message);
       document.getElementById("text-sidebar").innerHTML =
-        `<p class="empty-state error">❌ ${err.message}</p>`;
+        `<p class='empty-state error'>❌ Text extraction failed: ${err.message}</p>`;
       document.getElementById("summary-panel").innerHTML =
-        `<p class="empty-state error">❌ Upload failed: ${err.message}</p>`;
+        `<p class="empty-state error">❌ Upload error: ${err.message}</p>`;
     }
   }
+  _reopenPDF = handleFile; // expose to module scope for Recents
 });
 
 // ── Insights ──
@@ -981,6 +1089,7 @@ function initSettings() {
     modal.classList.remove('hidden');
     const current = localStorage.getItem(THEME_KEY) || 'auto';
     updateThemeBtns(current);
+    loadAiSetupPanel(); // refresh AI section every time settings opens
   });
 
   // Close
@@ -1008,4 +1117,275 @@ function initSettings() {
   applyTheme(saved);
   updateThemeBtns(saved);
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Onboarding Banner  (new — no existing code changed)
+// ──────────────────────────────────────────────────────────────────────────────
+
+function syncOnboardingUI(ollamaRunning, models) {
+  const banner = document.getElementById('onboarding-banner');
+  const titleEl = document.getElementById('onboarding-title');
+  const subEl   = document.getElementById('onboarding-sub');
+  if (!banner) return;
+
+  if (!ollamaRunning) {
+    titleEl.textContent = 'Ollama not running';
+    subEl.textContent   = 'AI features are unavailable. Start Ollama or install it from ollama.com.';
+    _showBanner();
+  } else if (models.length === 0) {
+    titleEl.textContent = 'No AI models installed';
+    subEl.textContent   = 'Open Settings → AI Setup to install a model.';
+    _showBanner();
+  } else {
+    _hideBanner();
+  }
+}
+
+function _showBanner() {
+  const b = document.getElementById('onboarding-banner');
+  if (!b || !b.classList.contains('hidden')) return;
+  b.classList.remove('hidden');
+  document.body.classList.add('banner-visible');
+}
+
+function _hideBanner() {
+  const b = document.getElementById('onboarding-banner');
+  if (!b) return;
+  b.classList.add('hidden');
+  document.body.classList.remove('banner-visible');
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// AI Setup Panel  (Settings modal section)
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function loadAiSetupPanel() {
+  const panel = document.getElementById('ai-setup-panel');
+  if (!panel) return;
+  panel.innerHTML = '<p class="ai-setup-loading">Checking…</p>';
+
+  let status, specs;
+  try {
+    const [sr, sp] = await Promise.all([
+      fetch(`${BACKEND_URL}/ollama/status`, { signal: AbortSignal.timeout(5000) })
+        .then(r => { if (!r.ok) throw new Error(`/ollama/status ${r.status}`); return r.json(); }),
+      fetch(`${BACKEND_URL}/system/specs`,  { signal: AbortSignal.timeout(5000) })
+        .then(r => { if (!r.ok) throw new Error(`/system/specs ${r.status}`); return r.json(); }),
+    ]);
+    status = sr; specs = sp;
+  } catch (err) {
+    panel.innerHTML = `<p class="ai-setup-error">⚠️ Could not reach backend (${err.message}). Make sure the app backend is running.</p>`;
+    return;
+  }
+
+  panel.innerHTML = '';
+
+  // — Ollama status row —
+  const dotClass   = status.running ? 'ok' : (status.installed ? 'warn' : 'bad');
+  const statusText = status.running ? 'Running ✅'
+    : (status.installed ? 'Installed, not running' : 'Not installed ❌');
+
+  const statusRow = document.createElement('div');
+  statusRow.className = 'ai-status-row';
+  statusRow.innerHTML = `
+    <span class="ai-status-dot ${escapeHTML(dotClass)}"></span>
+    <span class="ai-status-label">Ollama</span>
+    <span class="ai-status-value">${escapeHTML(statusText)}</span>`;
+  panel.appendChild(statusRow);
+
+  if (!status.installed) {
+    const tip = document.createElement('p');
+    tip.className = 'ai-setup-tip';
+    tip.textContent = 'Download Ollama from ollama.com, install it, then restart the app.';
+    panel.appendChild(tip);
+    const link = document.createElement('a');
+    link.href = 'https://ollama.com';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'btn-primary btn-sm ai-install-link';
+    link.textContent = '↗ Download Ollama';
+    panel.appendChild(link);
+    return;
+  }
+
+  if (!status.running) {
+    const tip = document.createElement('p');
+    tip.className = 'ai-setup-tip';
+    tip.textContent = 'Run “ollama serve” in a terminal, then refresh the app.';
+    panel.appendChild(tip);
+  }
+
+  // — Installed models —
+  if (status.models.length > 0) {
+    const list = document.createElement('div');
+    list.className = 'ai-models-list';
+    status.models.forEach(m => {
+      const item = document.createElement('div');
+      item.className = 'ai-model-item';
+      item.innerHTML = `<span class="ai-model-dot"></span><span class="ai-model-name">${escapeHTML(m)}</span>`;
+      list.appendChild(item);
+    });
+    panel.appendChild(list);
+  } else {
+    const tip = document.createElement('p');
+    tip.className = 'ai-setup-tip';
+    tip.textContent = 'No models installed yet. Install one below.';
+    panel.appendChild(tip);
+  }
+
+  if (!status.running) return; // can’t pull without Ollama running
+
+  // — Install new model —
+  const installWrap = document.createElement('div');
+  installWrap.className = 'ai-install-section';
+
+  const tip2 = document.createElement('p');
+  tip2.className = 'ai-setup-tip';
+  tip2.textContent = `Recommended for your system (${specs.ram_gb} GB RAM):`;
+  installWrap.appendChild(tip2);
+
+  const formRow = document.createElement('div');
+  formRow.className = 'ai-install-form';
+
+  const sel = document.createElement('select');
+  sel.className = 'ai-model-select';
+  sel.setAttribute('aria-label', 'Select model to install');
+  specs.recommended_models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    sel.appendChild(opt);
+  });
+
+  const installBtn = document.createElement('button');
+  installBtn.className = 'btn-primary btn-sm';
+  installBtn.textContent = 'Install';
+
+  const progressWrap = document.createElement('div');
+  progressWrap.className = 'ai-install-progress hidden';
+  progressWrap.innerHTML = `
+    <div class="ai-progress-bar-wrap"><div class="ai-progress-bar" id="ai-pb" style="width:0%"></div></div>
+    <span class="ai-progress-msg" id="ai-pm">Preparing…</span>`;
+
+  installBtn.addEventListener('click', () => {
+    if (sel.value) _installModel(sel.value, installBtn, progressWrap);
+  });
+
+  formRow.appendChild(sel);
+  formRow.appendChild(installBtn);
+  installWrap.appendChild(formRow);
+  installWrap.appendChild(progressWrap);
+  panel.appendChild(installWrap);
+}
+
+async function _installModel(modelName, btn, progressWrap) {
+  btn.disabled = true;
+  btn.textContent = 'Installing…';
+  progressWrap.classList.remove('hidden');
+  const bar = progressWrap.querySelector('#ai-pb');
+  const msg = progressWrap.querySelector('#ai-pm');
+
+  let jobId;
+  try {
+    const res = await fetch(`${BACKEND_URL}/ollama/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelName }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Pull failed'); }
+    jobId = (await res.json()).job_id;
+  } catch (err) {
+    if (msg) msg.textContent = `❌ ${err.message}`;
+    btn.disabled = false; btn.textContent = 'Retry';
+    return;
+  }
+
+  while (true) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const job = await fetch(`${BACKEND_URL}/ollama/pull/${jobId}/status`).then(r => r.json());
+      if (bar) bar.style.width = `${job.progress}%`;
+      if (msg) msg.textContent = job.message || 'Downloading…';
+      if (job.done) {
+        if (job.status === 'done') {
+          btn.textContent = '✓ Installed';
+          if (msg) msg.textContent = 'Model installed!';
+          setTimeout(() => loadAiSetupPanel(), 1200);
+        } else {
+          if (msg) msg.textContent = `❌ ${job.error || 'Error'}`;
+          btn.disabled = false; btn.textContent = 'Retry';
+        }
+        break;
+      }
+    } catch {
+      if (msg) msg.textContent = '⚠ Lost backend connection.';
+      btn.disabled = false; btn.textContent = 'Retry';
+      break;
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Recent PDFs  (localStorage-backed)
+// ──────────────────────────────────────────────────────────────────────────────
+
+function saveRecentPDF(name) {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem('ks-recent-pdfs') || '[]'); } catch { list = []; }
+  list = list.filter(n => n !== name);
+  list.unshift(name);
+  if (list.length > 10) list = list.slice(0, 10);
+  localStorage.setItem('ks-recent-pdfs', JSON.stringify(list));
+}
+
+function renderRecentView() {
+  const wrap = document.getElementById('recent-list');
+  if (!wrap) return;
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem('ks-recent-pdfs') || '[]'); } catch { list = []; }
+  wrap.innerHTML = '';
+  if (list.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No recent documents yet. Open a PDF to get started.</p>';
+    return;
+  }
+  list.forEach(name => {
+    const item = document.createElement('div');
+    item.className = 'recent-item';
+    item.innerHTML = `
+      <div class="recent-item-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      </div>
+      <div class="recent-item-info">
+        <span class="recent-item-name">${escapeHTML(name)}</span>
+        <span class="recent-item-sub">Click to re-import</span>
+      </div>`;
+    item.addEventListener('click', async () => {
+      const subEl = item.querySelector('.recent-item-sub');
+      subEl.textContent = 'Loading…';
+      const buf = await getPdfFromCache(name);
+      if (buf && _reopenPDF) {
+        const file = new File([buf], name, { type: 'application/pdf' });
+        _reopenPDF(file);
+      } else {
+        subEl.textContent = 'Not cached — please re-import';
+        setTimeout(() => document.getElementById('pdf-input')?.click(), 400);
+      }
+    });
+    wrap.appendChild(item);
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Credits Modal
+// ──────────────────────────────────────────────────────────────────────────────
+
+function initCreditsModal() {
+  const modal    = document.getElementById('credits-modal');
+  const closeBtn = document.getElementById('credits-modal-close');
+  const backdrop = modal?.querySelector('.credits-modal-backdrop');
+  document.getElementById('credits-btn')?.addEventListener('click', () => modal?.classList.remove('hidden'));
+  closeBtn?.addEventListener('click',  () => modal?.classList.add('hidden'));
+  backdrop?.addEventListener('click',  () => modal?.classList.add('hidden'));
+}
+
+initCreditsModal();
 
