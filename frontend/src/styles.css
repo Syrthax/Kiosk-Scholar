@@ -308,7 +308,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); overflow: 
   flex: 1;
   min-width: 0;
   position: relative;
-  background: #e8eaf0;
+  background: #1a1b2e;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -316,44 +316,66 @@ html, body { height: 100%; background: var(--bg); color: var(--text); overflow: 
 
 .pdf-viewer {
   flex: 1;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.pdf-viewer embed,
-.pdf-viewer iframe { width: 100%; height: 100%; border: none; }
-.viewer-placeholder {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  text-align: center;
-  padding: 2rem;
-}
-
-/* ── Floating tools on PDF center ── */
-.viewer-tools {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  z-index: 10;
+  align-items: center;
+  padding: 28px 24px;
+  scroll-behavior: smooth;
+}
+.pdf-viewer::-webkit-scrollbar { width: 5px; }
+.pdf-viewer::-webkit-scrollbar-track { background: transparent; }
+.pdf-viewer::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 3px; }
+.pdf-viewer embed,
+.pdf-viewer iframe {
+  width: 100%;
+  max-width: 900px;
+  height: 85vh;
+  border: none;
+  border-radius: 6px;
+  box-shadow: 0 12px 56px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.35);
+  flex-shrink: 0;
+  display: block;
+}
+.viewer-placeholder {
+  font-size: 0.875rem;
+  color: rgba(255,255,255,.35);
+  text-align: center;
+  padding: 2rem;
+  margin: auto;
+}
+
+/* ── Floating tools on PDF center — bottom-center pill ── */
+.viewer-tools {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 5px 8px;
+  pointer-events: all;
 }
 .tool-btn {
-  width: 36px; height: 36px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  width: 32px; height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
   transition: background 0.15s;
 }
-.tool-btn svg { width: 15px; height: 15px; stroke: var(--text-2); }
-.tool-btn:hover { background: var(--accent-light); }
-.tool-btn:hover svg { stroke: var(--accent); }
+.tool-btn svg { width: 15px; height: 15px; stroke: rgba(255,255,255,.78); }
+.tool-btn:hover { background: rgba(255,255,255,.12); }
+.tool-btn:hover svg { stroke: #fff; }
 
 /* ═══════════════════════════
    AI INSIGHTS PANEL
@@ -588,30 +610,31 @@ html, body { height: 100%; background: var(--bg); color: var(--text); overflow: 
 .sidebar-nav { transition: width 0.22s ease; }
 .main-area   { transition: margin-left 0.22s ease; }
 
-/* Toggle button — sits at top of sidebar, sticks out when nav narrows */
+/* Toggle button — floats as a circular tab on the right edge of the sidebar */
 .nav-toggle-btn {
-  position: absolute;
-  right: 8px;
-  top: 14px;
-  z-index: 10;
-  width: 22px; height: 22px;
-  background: var(--surface2);
+  position: fixed;
+  left: calc(var(--nav-w) - 12px);
+  top: 62px;
+  z-index: 200;
+  width: 24px; height: 24px;
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   font-size: 0.72rem;
   color: var(--text-muted);
   font-family: inherit;
-  transition: background 0.15s, transform 0.22s;
+  transition: left 0.22s ease, background 0.15s, transform 0.22s;
   flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0,0,0,.15);
 }
-.nav-toggle-btn:hover { background: var(--border); }
+.nav-toggle-btn:hover { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
 
 /* Collapsed state */
 body.nav-collapsed .sidebar-nav     { width: 52px; }
 body.nav-collapsed .main-area       { margin-left: 52px; }
-body.nav-collapsed .nav-toggle-btn  { transform: rotate(180deg); right: 7px; }
+body.nav-collapsed .nav-toggle-btn  { left: calc(52px - 12px); transform: rotate(180deg); }
 
 body.nav-collapsed .nav-brand-text,
 body.nav-collapsed .nav-section-label,

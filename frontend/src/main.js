@@ -96,7 +96,7 @@ async function requestExplain(text) {
 function renderPDFViewer(file) {
   const viewer = document.getElementById("pdf-viewer");
   const objectURL = URL.createObjectURL(file);
-  viewer.innerHTML = `<embed src="${objectURL}" type="application/pdf" width="100%" height="100%" />`;
+  viewer.innerHTML = `<embed src="${objectURL}" type="application/pdf" />`;
 }
 
 // ── Sources / Extracted text ──
