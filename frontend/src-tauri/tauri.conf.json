@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "frontend",
+  "productName": "Kiosk-Scholar",
   "version": "0.1.0",
   "identifier": "com.ritvik-malhotra.frontend",
   "build": {
@@ -10,9 +10,9 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "frontend",
-        "width": 800,
-        "height": 600
+        "title": "Kiosk-Scholar",
+        "width": 1280,
+        "height": 800
       }
     ],
     "security": {

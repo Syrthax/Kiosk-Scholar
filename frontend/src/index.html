@@ -9,20 +9,37 @@
   </head>
 
   <body>
-    <main class="container">
-      <h1>📚 Kiosk-Scholar</h1>
+    <header class="app-header">
+      <span class="app-title">📚 Kiosk-Scholar</span>
+      <div id="backend-status" class="backend-status">Checking backend…</div>
+    </header>
 
-      <div id="backend-status" style="margin: 1rem 0; padding: 0.5rem 1rem; border-radius: 6px; background: #222; color: #aaa;">
-        Checking backend…
-      </div>
+    <div class="app-layout">
+      <!-- Left: PDF upload + viewer -->
+      <section class="panel-left">
+        <div id="upload-area" class="upload-area">
+          <input type="file" id="pdf-input" accept=".pdf" hidden />
+          <button id="upload-btn" class="upload-btn">📄 Choose PDF</button>
+          <p class="upload-hint">or drag &amp; drop a PDF here</p>
+        </div>
 
-      <p style="color:#888; font-size:0.9rem;">Phase 1 — Setup complete. More features coming soon.</p>
+        <div id="pdf-info" class="pdf-info hidden">
+          <span id="pdf-name"></span>
+          <span id="pdf-pages"></span>
+        </div>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
+        <div id="pdf-viewer" class="pdf-viewer">
+          <p class="viewer-placeholder">PDF preview will appear here after upload</p>
+        </div>
+      </section>
+
+      <!-- Right: extracted text sidebar -->
+      <aside class="panel-right">
+        <div class="sidebar-title">Extracted Text</div>
+        <div id="text-sidebar" class="text-sidebar">
+          <p class="sidebar-placeholder">Upload a PDF to see its extracted text.</p>
+        </div>
+      </aside>
+    </div>
   </body>
 </html>

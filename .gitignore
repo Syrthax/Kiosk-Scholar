@@ -6,6 +6,12 @@ __pycache__/
 # Node / Tauri
 frontend/node_modules/
 frontend/src-tauri/target/
+node_modules/
+package-lock.json
+
+# Root-level artifacts
+/package.json
+/src-tauri/
 
 # Misc
 .env

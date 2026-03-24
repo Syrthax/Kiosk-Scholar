@@ -1,0 +1,126 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─────────────────────────────────────────
+  # Backend lint / smoke test
+  # ─────────────────────────────────────────
+  backend-check:
+    name: Backend (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        working-directory: backend
+        run: python -m py_compile main.py && echo "✅ backend/main.py OK"
+
+  # ─────────────────────────────────────────
+  # Tauri desktop build (macOS / Linux / Windows)
+  # ─────────────────────────────────────────
+  tauri-build:
+    name: Tauri — ${{ matrix.label }}
+    needs: backend-check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS (Apple Silicon)
+            platform: macos-latest
+            rust-target: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin"
+
+          - label: macOS (Intel)
+            platform: macos-latest
+            rust-target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
+
+          - label: Linux
+            platform: ubuntu-22.04
+            rust-target: x86_64-unknown-linux-gnu
+            args: ""
+
+          - label: Windows
+            platform: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Node.js (for Tauri CLI) ──────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # ── Rust ────────────────────────────
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./frontend/src-tauri -> target"
+
+      # ── Linux system deps ────────────────
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
+
+      # ── macOS cross-compile target ───────
+      - name: Add macOS cross-compile target
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add ${{ matrix.rust-target }}
+
+      # ── Frontend deps ────────────────────
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      # ── Tauri build ──────────────────────
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ./frontend
+          args: ${{ matrix.args }}
+          # Create a GitHub Release when pushing a version tag
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Kiosk-Scholar {0}', github.ref_name) || '' }}
+          releaseBody: |
+            See the full changelog in [planning.md](https://github.com/${{ github.repository }}/blob/main/planning.md).
+          releaseDraft: ${{ startsWith(github.ref, 'refs/tags/') }}
+          prerelease: false
