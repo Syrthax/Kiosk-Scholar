@@ -17,24 +17,24 @@ async function checkBackend() {
     if (data.ollama && data.models && data.models.length > 0) {
       const model = data.active_model || data.models[0];
       ollamaEl.className = "ollama-badge ok";
-      ollamaLabel.textContent = "Ollama · online";
-      ollamaModelLabel.textContent = `Ollama · ${model}`;
+      if (ollamaLabel) ollamaLabel.textContent = "Ollama · online";
+      if (ollamaModelLabel) ollamaModelLabel.textContent = `Ollama · ${model}`;
     } else if (data.ollama) {
       ollamaEl.className = "ollama-badge error";
-      ollamaLabel.textContent = "Ollama · no models";
-      ollamaModelLabel.textContent = "Ollama · no models";
+      if (ollamaLabel) ollamaLabel.textContent = "Ollama · no models";
+      if (ollamaModelLabel) ollamaModelLabel.textContent = "Ollama · no models";
     } else {
       ollamaEl.className = "ollama-badge error";
-      ollamaLabel.textContent = "Ollama · offline";
-      ollamaModelLabel.textContent = "Ollama · offline";
+      if (ollamaLabel) ollamaLabel.textContent = "Ollama · offline";
+      if (ollamaModelLabel) ollamaModelLabel.textContent = "Ollama · offline";
     }
   } catch (err) {
     console.error("Health check failed:", err);
     statusEl.textContent = "Backend unreachable";
     statusEl.className = "pill pill-error";
-    ollamaEl.className = "ollama-badge error";
-    ollamaLabel.textContent = "Ollama · unknown";
-    ollamaModelLabel.textContent = "Ollama · unknown";
+    if (ollamaEl) ollamaEl.className = "ollama-badge error";
+    if (ollamaLabel) ollamaLabel.textContent = "Ollama · unknown";
+    if (ollamaModelLabel) ollamaModelLabel.textContent = "Ollama · unknown";
   }
 }
 
@@ -44,9 +44,11 @@ function showView(viewId) {
   const target = document.getElementById(viewId);
   if (target) target.classList.add("active");
 
-  // Sync active state in nav
   document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
-    item.classList.toggle("active", item.dataset.view === (viewId === "view-upload" ? "upload" : "reader"));
+    item.classList.toggle(
+      "active",
+      item.dataset.view === (viewId === "view-upload" ? "upload" : "reader")
+    );
   });
 }
 
@@ -90,14 +92,14 @@ async function requestExplain(text) {
   return res.json();
 }
 
-// ── PDF Viewer (embed) ──
+// ── PDF Viewer ──
 function renderPDFViewer(file) {
   const viewer = document.getElementById("pdf-viewer");
   const objectURL = URL.createObjectURL(file);
   viewer.innerHTML = `<embed src="${objectURL}" type="application/pdf" width="100%" height="100%" />`;
 }
 
-// ── Extracted text (Sources tab) ──
+// ── Sources / Extracted text ──
 function renderExtractedText(data) {
   const sidebar = document.getElementById("text-sidebar");
   sidebar.innerHTML = "";
@@ -127,6 +129,8 @@ function renderExtractedText(data) {
 }
 
 // ── AI Summary cards ──
+const CARD_LABELS = ["CORE POINT", "KEY INSIGHT", "ANALYSIS", "FINDING", "CONTEXTUAL ANALYSIS"];
+
 function renderSummary(summaryData) {
   const panel = document.getElementById("summary-panel");
   panel.innerHTML = "";
@@ -136,21 +140,13 @@ function renderSummary(summaryData) {
     return;
   }
 
-  const labels = ["CORE POINT", "KEY INSIGHT", "ANALYSIS", "FINDING", "CONTEXTUAL ANALYSIS"];
-
   summaryData.forEach((item, idx) => {
     const card = document.createElement("div");
     card.className = "summary-card";
 
     const typeLabel = document.createElement("span");
     typeLabel.className = "card-type-label";
-    typeLabel.textContent = labels[idx % labels.length];
-
-    const title = document.createElement("div");
-    title.className = "card-title";
-    title.textContent = item.point.length > 60
-      ? item.point.slice(0, 57) + "…"
-      : item.point;
+    typeLabel.textContent = CARD_LABELS[idx % CARD_LABELS.length];
 
     const body = document.createElement("div");
     body.className = "card-body";
@@ -158,21 +154,19 @@ function renderSummary(summaryData) {
 
     const link = document.createElement("button");
     link.className = "card-link-to-source";
-    link.innerHTML = `← Link to Source &nbsp;<span style="color:var(--text-faint);font-weight:400;">Page ${item.page}</span>`;
+    link.innerHTML = `← Link to Source <span style="color:var(--text-faint);font-weight:400;margin-left:4px;">Page ${item.page}</span>`;
     link.addEventListener("click", () => jumpToPage(item.page));
 
     card.appendChild(typeLabel);
-    card.appendChild(title);
     card.appendChild(body);
     card.appendChild(link);
     panel.appendChild(card);
   });
 }
 
-// ── Jump to page in Sources tab ──
+// ── Jump to source page ──
 function jumpToPage(pageNum) {
   activateAiTab("ai-sources-tab");
-
   const sidebar = document.getElementById("text-sidebar");
   const block = sidebar.querySelector(`.page-block[data-page="${pageNum}"]`);
   if (block) {
@@ -197,32 +191,133 @@ function showLoading(el, msg) {
   el.innerHTML = `<p class='empty-state'>⏳ ${msg}</p>`;
 }
 
+// ── Floating text-selection "Explain" button (Copilot-style) ──
+let _pendingExplainText = "";
+
+function initSelectionExplain() {
+  const floatBtn = document.getElementById("selection-explain-btn");
+  if (!floatBtn) return;
+
+  document.addEventListener("mouseup", (e) => {
+    if (floatBtn.contains(e.target)) return; // clicking the button itself
+
+    const sel = window.getSelection();
+    const text = sel ? sel.toString().trim() : "";
+
+    if (text.length < 4) {
+      floatBtn.classList.add("hidden");
+      _pendingExplainText = "";
+      return;
+    }
+
+    _pendingExplainText = text;
+
+    // Position just above the selection end
+    try {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      const x = Math.min(rect.right, window.innerWidth - 130);
+      const y = Math.max(rect.top - 38, 8);
+      floatBtn.style.left = `${x}px`;
+      floatBtn.style.top = `${y}px`;
+    } catch {
+      floatBtn.style.left = `${e.clientX}px`;
+      floatBtn.style.top = `${Math.max(e.clientY - 42, 8)}px`;
+    }
+
+    floatBtn.classList.remove("hidden");
+  });
+
+  // Hide on mousedown outside the button
+  document.addEventListener("mousedown", (e) => {
+    if (!floatBtn.contains(e.target)) {
+      floatBtn.classList.add("hidden");
+    }
+  });
+
+  floatBtn.addEventListener("click", async () => {
+    const text = _pendingExplainText;
+    if (!text) return;
+
+    floatBtn.classList.add("hidden");
+    window.getSelection()?.removeAllRanges();
+
+    // Switch to reader view → Chat tab → show explanation
+    showView("view-reader");
+    activateAiTab("ai-explain-tab");
+
+    const output = document.getElementById("explain-output");
+    const textarea = document.getElementById("explain-input");
+    const explainBtn = document.getElementById("explain-btn");
+
+    textarea.value = text;
+    showLoading(output, "Explaining selection…");
+    explainBtn.disabled = true;
+
+    try {
+      const data = await requestExplain(text);
+      output.innerHTML = `<div class="explain-result">${escapeHTML(data.explanation)}</div>`;
+    } catch (err) {
+      output.innerHTML = `<p class="empty-state error">❌ ${err.message}</p>`;
+    } finally {
+      explainBtn.disabled = false;
+    }
+  });
+}
+
+// ── Sidebar & AI panel collapse toggles ──
+function initCollapseToggles() {
+  // Left nav toggle
+  const navToggle = document.getElementById("nav-toggle-btn");
+  navToggle?.addEventListener("click", () => {
+    document.body.classList.toggle("nav-collapsed");
+    navToggle.title = document.body.classList.contains("nav-collapsed")
+      ? "Expand sidebar"
+      : "Collapse sidebar";
+  });
+
+  // AI panel: close button inside the panel
+  const aiCloseBtn = document.getElementById("ai-panel-close-btn");
+  aiCloseBtn?.addEventListener("click", () => {
+    document.body.classList.add("ai-collapsed");
+  });
+
+  // AI panel: re-open via "⊡ AI" button in reader topbar
+  const aiToggleBtn = document.getElementById("ai-toggle-btn");
+  aiToggleBtn?.addEventListener("click", () => {
+    document.body.classList.toggle("ai-collapsed");
+    const collapsed = document.body.classList.contains("ai-collapsed");
+    aiToggleBtn.textContent = collapsed ? "⊞ AI" : "⊡ AI";
+    aiToggleBtn.title = collapsed ? "Show AI panel" : "Hide AI panel";
+  });
+}
+
 // ── Main ──
 window.addEventListener("DOMContentLoaded", () => {
   checkBackend();
+  initSelectionExplain();
+  initCollapseToggles();
 
   const importBtn  = document.getElementById("import-pdf-btn");
   const uploadBtn  = document.getElementById("upload-btn");
   const pdfInput   = document.getElementById("pdf-input");
   const uploadArea = document.getElementById("upload-area");
-  const summarizeBtn = document.getElementById("summarize-btn");
-  const explainBtn   = document.getElementById("explain-btn");
-  const backBtn      = document.getElementById("back-to-upload-btn");
+  const explainBtn = document.getElementById("explain-btn");
+  const backBtn    = document.getElementById("back-to-upload-btn");
 
-  // AI Panel tab switching
+  // AI panel tab switching
   document.querySelectorAll(".ai-tab").forEach((btn) => {
     btn.addEventListener("click", () => activateAiTab(btn.dataset.tab));
   });
 
-  // Nav item view switching
+  // Nav view switching
   document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
     item.addEventListener("click", () => {
-      const viewId = item.dataset.view === "upload" ? "view-upload" : "view-reader";
-      showView(viewId);
+      showView(item.dataset.view === "upload" ? "view-upload" : "view-reader");
     });
   });
 
-  // Both "Import PDF" buttons open the file picker
+  // File pickers
   importBtn.addEventListener("click", () => pdfInput.click());
   uploadBtn.addEventListener("click", (e) => { e.stopPropagation(); pdfInput.click(); });
 
@@ -230,7 +325,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (pdfInput.files[0]) handleFile(pdfInput.files[0]);
   });
 
-  // Upload card drag-and-drop
+  // Drag and drop
   uploadArea.addEventListener("dragover", (e) => {
     e.preventDefault();
     uploadArea.classList.add("drag-over");
@@ -243,36 +338,17 @@ window.addEventListener("DOMContentLoaded", () => {
     if (file && file.type === "application/pdf") handleFile(file);
   });
 
-  // Back button → return to upload view
+  // Back to upload
   backBtn.addEventListener("click", () => showView("view-upload"));
 
-  // Summarize
-  summarizeBtn.addEventListener("click", async () => {
-    const panel = document.getElementById("summary-panel");
-    showLoading(panel, "Generating AI summary… this may take a minute.");
-    summarizeBtn.disabled = true;
-    summarizeBtn.textContent = "⏳ Working…";
-
-    try {
-      const data = await requestSummary();
-      renderSummary(data.summary);
-      // Auto-switch to Summary tab
-      activateAiTab("ai-summary-tab");
-    } catch (err) {
-      panel.innerHTML = `<p class="empty-state error">❌ ${err.message}</p>`;
-    } finally {
-      summarizeBtn.disabled = false;
-      summarizeBtn.textContent = "🤖 Summarize";
-    }
-  });
-
-  // Explain / Chat
+  // Manual explain (Chat tab)
   explainBtn.addEventListener("click", async () => {
     const input  = document.getElementById("explain-input");
     const output = document.getElementById("explain-output");
     const text   = input.value.trim();
+
     if (!text) {
-      output.innerHTML = "<p class='empty-state error'>Please enter a question or text to explain.</p>";
+      output.innerHTML = "<p class='empty-state error'>Please type a question or select text.</p>";
       return;
     }
 
@@ -291,31 +367,36 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // ── File handler: upload → extract → auto-summarize ──
   async function handleFile(file) {
-    // Switch to reader view and update header
     showView("view-reader");
     document.getElementById("reader-doc-name").textContent = file.name;
     document.getElementById("reader-page-info").classList.add("hidden");
 
-    // Render PDF immediately
     renderPDFViewer(file);
-
-    // Reset panels
     showLoading(document.getElementById("summary-panel"), "Uploading & extracting text…");
     showLoading(document.getElementById("text-sidebar"), "Extracting text…");
 
     try {
       const data = await uploadPDF(file);
+
       const pageInfo = document.getElementById("reader-page-info");
       pageInfo.textContent = `${data.total_pages} page${data.total_pages !== 1 ? "s" : ""}`;
       pageInfo.classList.remove("hidden");
 
       renderExtractedText(data);
-      summarizeBtn.disabled = false;
 
-      // Show "ready" state in summary panel
-      document.getElementById("summary-panel").innerHTML =
-        "<p class='empty-state'>Text extracted. Click <strong>Summarize</strong> to generate AI insights.</p>";
+      // Auto-summarize — no button click required
+      showLoading(document.getElementById("summary-panel"), "Generating AI summary…");
+      try {
+        const summaryData = await requestSummary();
+        renderSummary(summaryData.summary);
+        // Switch to Summary tab to show the result
+        activateAiTab("ai-summary-tab");
+      } catch (err) {
+        document.getElementById("summary-panel").innerHTML =
+          `<p class="empty-state error">❌ Summary failed: ${err.message}</p>`;
+      }
     } catch (err) {
       document.getElementById("text-sidebar").innerHTML =
         `<p class="empty-state error">❌ ${err.message}</p>`;

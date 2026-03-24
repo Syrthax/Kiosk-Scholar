@@ -167,17 +167,60 @@ async def summarize(req: SummarizeRequest = SummarizeRequest()):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ollama error: {e}")
 
-    # Try to parse JSON from the response
+    # Strip markdown code fences that models often add
+    cleaned = re.sub(r'```(?:json)?\s*', '', raw, flags=re.IGNORECASE).strip().rstrip('`').strip()
+
+    def extract_json_array(text):
+        """Find the first balanced JSON array in text (handles nested brackets)."""
+        start = text.find('[')
+        if start == -1:
+            return None
+        depth, in_str, esc = 0, False, False
+        for i, ch in enumerate(text[start:], start):
+            if esc:
+                esc = False
+                continue
+            if ch == '\\' and in_str:
+                esc = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+                continue
+            if in_str:
+                continue
+            if ch == '[':
+                depth += 1
+            elif ch == ']':
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        return None
+
+    summary = None
+
+    # Try 1: direct parse of cleaned response
     try:
-        # Find JSON array in the response
-        match = re.search(r'\[.*\]', raw, re.DOTALL)
-        if match:
-            summary = json.loads(match.group())
-        else:
-            summary = json.loads(raw)
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, list):
+            summary = parsed
     except json.JSONDecodeError:
-        # Fallback: return raw text as a single summary point
-        summary = [{"point": raw.strip(), "page": 1}]
+        pass
+
+    # Try 2: extract balanced JSON array from within the text
+    if summary is None:
+        array_str = extract_json_array(cleaned)
+        if array_str:
+            try:
+                parsed = json.loads(array_str)
+                if isinstance(parsed, list):
+                    summary = parsed
+            except json.JSONDecodeError:
+                pass
+
+    # Fallback: split into bullet lines
+    if summary is None:
+        lines = [l.strip('-•* \t') for l in cleaned.split('\n') if l.strip('-•* \t')]
+        summary = [{"point": l, "page": 1} for l in lines[:12]] if lines else [{"point": cleaned[:500], "page": 1}]
 
     return {"summary": summary}
 

@@ -368,9 +368,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); overflow: 
   overflow: hidden;
 }
 
+/* ── fix ai-panel-header to lay out title + close button ── */
 .ai-panel-header {
   padding: 14px 16px 0;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .ai-panel-title {
   display: flex;
@@ -575,3 +579,99 @@ html, body { height: 100%; background: var(--bg); color: var(--text); overflow: 
 }
 .empty-state strong { color: var(--text-2); }
 .empty-state.error  { color: var(--red); }
+
+/* ═══════════════════════════
+   COLLAPSIBLE SIDEBARS
+═══════════════════════════ */
+
+/* Left nav collapse transition */
+.sidebar-nav { transition: width 0.22s ease; }
+.main-area   { transition: margin-left 0.22s ease; }
+
+/* Toggle button — sits at top of sidebar, sticks out when nav narrows */
+.nav-toggle-btn {
+  position: absolute;
+  right: 8px;
+  top: 14px;
+  z-index: 10;
+  width: 22px; height: 22px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: inherit;
+  transition: background 0.15s, transform 0.22s;
+  flex-shrink: 0;
+}
+.nav-toggle-btn:hover { background: var(--border); }
+
+/* Collapsed state */
+body.nav-collapsed .sidebar-nav     { width: 52px; }
+body.nav-collapsed .main-area       { margin-left: 52px; }
+body.nav-collapsed .nav-toggle-btn  { transform: rotate(180deg); right: 7px; }
+
+body.nav-collapsed .nav-brand-text,
+body.nav-collapsed .nav-section-label,
+body.nav-collapsed .nav-label,
+body.nav-collapsed #ollama-label    { display: none; }
+
+body.nav-collapsed .nav-brand       { padding: 12px 4px; justify-content: flex-start; }
+body.nav-collapsed .nav-brand-icon  { width: 28px; height: 28px; font-size: 0.8rem; }
+body.nav-collapsed .nav-links       { padding: 0 4px; }
+body.nav-collapsed .nav-item        { justify-content: center; padding: 10px 4px; }
+body.nav-collapsed .nav-footer      { padding: 8px 4px; align-items: center; }
+body.nav-collapsed .ollama-badge    { justify-content: center; padding: 7px 4px; }
+body.nav-collapsed .settings-item  { justify-content: center; padding: 10px 4px; }
+
+/* Right AI panel — close button inside panel header */
+.ai-panel-close-btn {
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.ai-panel-close-btn:hover { background: var(--surface2); }
+
+/* AI panel collapse: transition + collapsed state */
+.ai-panel { transition: width 0.22s ease; }
+body.ai-collapsed .ai-panel { width: 0; overflow: hidden; border-left: none; }
+
+/* "Show AI" button in reader topbar — visible only when AI panel is collapsed */
+#ai-toggle-btn { transition: background 0.15s; }
+
+/* ═══════════════════════════
+   FLOATING SELECTION EXPLAIN BUTTON
+═══════════════════════════ */
+.selection-explain-btn {
+  position: fixed;
+  z-index: 9999;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 5px 13px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 3px 14px rgba(91, 76, 245, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: all;
+  white-space: nowrap;
+  user-select: none;
+  transition: opacity 0.12s, transform 0.12s;
+}
+.selection-explain-btn:hover { opacity: 0.88; transform: translateY(-1px); }
+.selection-explain-btn.hidden { display: none; }
