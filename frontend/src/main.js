@@ -1,3 +1,9 @@
+import * as pdfjsLib from 'pdfjs-dist';
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).href;
+
 const BACKEND_URL = "http://127.0.0.1:8000";
 
 // ── Backend & Ollama health check ──
@@ -92,11 +98,65 @@ async function requestExplain(text) {
   return res.json();
 }
 
-// ── PDF Viewer ──
-function renderPDFViewer(file) {
+// ── PDF Viewer (pdf.js canvas + textLayer) ──
+let _pdfDoc = null;
+
+async function renderPDFViewer(file) {
   const viewer = document.getElementById("pdf-viewer");
-  const objectURL = URL.createObjectURL(file);
-  viewer.innerHTML = `<embed src="${objectURL}" type="application/pdf" />`;
+  viewer.innerHTML = '<p class="viewer-placeholder">Rendering PDF…</p>';
+
+  // Destroy previous document to free memory
+  if (_pdfDoc) {
+    await _pdfDoc.destroy();
+    _pdfDoc = null;
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  _pdfDoc = await loadingTask.promise;
+
+  viewer.innerHTML = "";
+
+  for (let pageNum = 1; pageNum <= _pdfDoc.numPages; pageNum++) {
+    const page = await _pdfDoc.getPage(pageNum);
+    const scale = 1.4;
+    const viewport = page.getViewport({ scale });
+
+    // Page wrapper — position:relative is required for textLayer alignment
+    const pageWrapper = document.createElement("div");
+    pageWrapper.className = "pdf-page-wrapper";
+    pageWrapper.dataset.page = pageNum;
+    pageWrapper.style.width = `${viewport.width}px`;
+    pageWrapper.style.height = `${viewport.height}px`;
+
+    // Canvas layer
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    // TextLayer div — must be same size and absolutely over the canvas
+    const textLayerDiv = document.createElement("div");
+    textLayerDiv.className = "textLayer";
+    textLayerDiv.style.width = `${viewport.width}px`;
+    textLayerDiv.style.height = `${viewport.height}px`;
+
+    pageWrapper.appendChild(canvas);
+    pageWrapper.appendChild(textLayerDiv);
+    viewer.appendChild(pageWrapper);
+
+    // Render canvas first
+    const ctx = canvas.getContext("2d");
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    // Render text layer (pdfjs v4+ TextLayer class)
+    const textContent = await page.getTextContent();
+    const textLayer = new pdfjsLib.TextLayer({
+      textContentSource: textContent,
+      container: textLayerDiv,
+      viewport,
+    });
+    await textLayer.render();
+  }
 }
 
 // ── Sources / Extracted text ──
@@ -166,6 +226,14 @@ function renderSummary(summaryData) {
 
 // ── Jump to source page ──
 function jumpToPage(pageNum) {
+  // Scroll the PDF canvas viewer to the page
+  const pdfViewer = document.getElementById("pdf-viewer");
+  const pdfPageEl = pdfViewer?.querySelector(`.pdf-page-wrapper[data-page="${pageNum}"]`);
+  if (pdfPageEl) {
+    pdfPageEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // Also highlight in sources tab
   activateAiTab("ai-sources-tab");
   const sidebar = document.getElementById("text-sidebar");
   const block = sidebar.querySelector(`.page-block[data-page="${pageNum}"]`);

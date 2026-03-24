@@ -169,6 +169,8 @@ async def summarize(req: SummarizeRequest = SummarizeRequest()):
 
     # Strip markdown code fences that models often add
     cleaned = re.sub(r'```(?:json)?\s*', '', raw, flags=re.IGNORECASE).strip().rstrip('`').strip()
+    # Remove trailing commas before ] or } (LLMs often emit invalid JSON like [{...},])
+    cleaned = re.sub(r',\s*([\]}])', r'\1', cleaned)
 
     def extract_json_array(text):
         """Find the first balanced JSON array in text (handles nested brackets)."""

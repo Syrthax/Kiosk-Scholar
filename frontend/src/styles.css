@@ -321,29 +321,73 @@ html, body { height: 100%; background: var(--bg); color: var(--text); overflow: 
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 28px 24px;
+  padding: 28px 24px 48px;
   scroll-behavior: smooth;
 }
 .pdf-viewer::-webkit-scrollbar { width: 5px; }
 .pdf-viewer::-webkit-scrollbar-track { background: transparent; }
 .pdf-viewer::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 3px; }
-.pdf-viewer embed,
-.pdf-viewer iframe {
-  width: 100%;
-  max-width: 900px;
-  height: 85vh;
-  border: none;
-  border-radius: 6px;
-  box-shadow: 0 12px 56px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.35);
-  flex-shrink: 0;
-  display: block;
-}
 .viewer-placeholder {
   font-size: 0.875rem;
   color: rgba(255,255,255,.35);
   text-align: center;
   padding: 2rem;
   margin: auto;
+}
+
+/* ── PDF page wrapper: position:relative is CRITICAL for textLayer alignment ── */
+.pdf-page-wrapper {
+  position: relative;
+  display: block;
+  margin: 0 auto 20px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  box-shadow: 0 10px 48px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.4);
+  overflow: hidden;
+  line-height: 0; /* prevents inline gap below canvas */
+}
+.pdf-page-wrapper canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ═══════════════════════════
+   pdf.js TEXT LAYER
+   CRITICAL: these rules ensure text selection works correctly.
+   DO NOT remove or reorder these — misalignment breaks selection.
+═══════════════════════════ */
+.textLayer {
+  position: absolute;
+  top: 0; left: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 2;
+  pointer-events: auto;
+}
+.textLayer span,
+.textLayer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* Selection highlight — blue tint visible through transparent text */
+.textLayer ::selection {
+  background: rgba(91, 76, 245, 0.28);
+  color: transparent;
+}
+.textLayer ::-moz-selection {
+  background: rgba(91, 76, 245, 0.28);
+  color: transparent;
 }
 
 /* ── Floating tools on PDF center — bottom-center pill ── */
