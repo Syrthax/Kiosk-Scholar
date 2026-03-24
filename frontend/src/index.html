@@ -11,7 +11,10 @@
   <body>
     <header class="app-header">
       <span class="app-title">📚 Kiosk-Scholar</span>
-      <div id="backend-status" class="backend-status">Checking backend…</div>
+      <div class="header-right">
+        <div id="ollama-status" class="backend-status">Ollama: checking…</div>
+        <div id="backend-status" class="backend-status">Checking backend…</div>
+      </div>
     </header>
 
     <div class="app-layout">
@@ -26,6 +29,7 @@
         <div id="pdf-info" class="pdf-info hidden">
           <span id="pdf-name"></span>
           <span id="pdf-pages"></span>
+          <button id="summarize-btn" class="action-btn" disabled>🤖 Summarize</button>
         </div>
 
         <div id="pdf-viewer" class="pdf-viewer">
@@ -33,11 +37,35 @@
         </div>
       </section>
 
-      <!-- Right: extracted text sidebar -->
+      <!-- Middle: AI Summary panel -->
+      <aside class="panel-middle">
+        <div class="sidebar-title">AI Summary</div>
+        <div id="summary-panel" class="summary-panel">
+          <p class="sidebar-placeholder">Upload a PDF and click <strong>🤖 Summarize</strong> to generate an AI summary.</p>
+        </div>
+      </aside>
+
+      <!-- Right: extracted text / explain sidebar -->
       <aside class="panel-right">
-        <div class="sidebar-title">Extracted Text</div>
-        <div id="text-sidebar" class="text-sidebar">
-          <p class="sidebar-placeholder">Upload a PDF to see its extracted text.</p>
+        <div class="sidebar-tabs">
+          <button class="tab-btn active" data-tab="text-tab">Extracted Text</button>
+          <button class="tab-btn" data-tab="explain-tab">Explain</button>
+        </div>
+
+        <div id="text-tab" class="tab-content active">
+          <div id="text-sidebar" class="text-sidebar">
+            <p class="sidebar-placeholder">Upload a PDF to see its extracted text.</p>
+          </div>
+        </div>
+
+        <div id="explain-tab" class="tab-content">
+          <div class="explain-input-area">
+            <textarea id="explain-input" class="explain-textarea" placeholder="Paste or type text to explain…" rows="4"></textarea>
+            <button id="explain-btn" class="action-btn">💡 Explain</button>
+          </div>
+          <div id="explain-output" class="explain-output">
+            <p class="sidebar-placeholder">Select text and click Explain to get an AI explanation.</p>
+          </div>
         </div>
       </aside>
     </div>
