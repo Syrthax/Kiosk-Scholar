@@ -35,31 +35,41 @@ jobs:
   # Tauri desktop build (macOS / Linux / Windows)
   # ─────────────────────────────────────────
   tauri-build:
-    name: Tauri — ${{ matrix.label }}
+    name: ${{ matrix.label }}
     needs: backend-check
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - label: macOS (Apple Silicon)
+          - label: "macOS (Apple Silicon)"
             platform: macos-latest
             rust-target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
+            artifact-name: installer-macos-arm64
+            bundle-path: frontend/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg
 
-          - label: macOS (Intel)
+          - label: "macOS (Intel)"
             platform: macos-latest
             rust-target: x86_64-apple-darwin
             args: "--target x86_64-apple-darwin"
+            artifact-name: installer-macos-x86_64
+            bundle-path: frontend/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg
 
-          - label: Linux
+          - label: "Linux"
             platform: ubuntu-22.04
             rust-target: x86_64-unknown-linux-gnu
             args: ""
+            artifact-name: installer-linux-x86_64
+            bundle-path: frontend/src-tauri/target/release/bundle
 
-          - label: Windows
+          - label: "Windows"
             platform: windows-latest
             rust-target: x86_64-pc-windows-msvc
             args: ""
+            artifact-name: installer-windows-x86_64
+            bundle-path: frontend/src-tauri/target/release/bundle
 
     runs-on: ${{ matrix.platform }}
 
@@ -109,6 +119,8 @@ jobs:
         run: npm install
 
       # ── Tauri build ──────────────────────
+      #   On version tags  → creates a draft GitHub Release with installers
+      #   On every push    → builds only (artifact uploaded below)
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -116,36 +128,25 @@ jobs:
         with:
           projectPath: ./frontend
           args: ${{ matrix.args }}
-          # Create a GitHub Release when pushing a version tag
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Kiosk-Scholar {0}', github.ref_name) || '' }}
           releaseBody: |
-            See the full changelog in [planning.md](https://github.com/${{ github.repository }}/blob/main/planning.md).
-          releaseDraft: ${{ startsWith(github.ref, 'refs/tags/') }}
+            ## Kiosk-Scholar ${{ github.ref_name }}
+
+            | Platform | Installer |
+            |----------|-----------|
+            | macOS Apple Silicon | .dmg (arm64) |
+            | macOS Intel | .dmg (x86_64) |
+            | Linux | .AppImage + .deb |
+            | Windows | .msi + .exe (NSIS) |
+          releaseDraft: true
           prerelease: false
 
-      # macOS-specific configuration for .dmg file
-      - name: macOS
-        if: matrix.platform == 'macos-latest'
-        runs-on: ${{ matrix.platform }}
-        steps:
-          - name: Create .dmg file
-            uses: tauri-apps/tauri-action@v0
-            env:
-              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            with:
-              projectPath: ./frontend
-              args: ${{ matrix.args }}
-              # Create a GitHub Release when pushing a version tag
-              tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-              releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Kiosk-Scholar {0}', github.ref_name) || '' }}
-              releaseBody: |
-                See the full changelog in [planning.md](https://github.com/${{ github.repository }}/blob/main/planning.md).
-              releaseDraft: ${{ startsWith(github.ref, 'refs/tags/') }}
-              prerelease: false
-              bundleIdentifier: "com.tauri.dev"
-              dmg:
-                outputPath: "dist/macos"
-                background: "icons/dmg-background.png"
-                icon: "icons/icon.icns"
-                format: "UDZO"
+      # ── Upload installers as downloadable artifacts ───
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.bundle-path }}
+          if-no-files-found: warn
+          retention-days: 14
