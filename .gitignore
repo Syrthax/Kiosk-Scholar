@@ -9,6 +9,10 @@ frontend/src-tauri/target/
 frontend/src-tauri/gen/schemas/
 node_modules/
 
+# Landing page
+landing/node_modules/
+landing/dist/
+
 # Misc
 .env
 *.log

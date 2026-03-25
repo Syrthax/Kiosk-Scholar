@@ -34,63 +34,59 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Extend PATH so python3 is found when launched from Finder (.app bundle).
+            // Homebrew installs to /opt/homebrew (Apple Silicon) or /usr/local (Intel).
+            let current_path = std::env::var("PATH").unwrap_or_default();
+            std::env::set_var(
+                "PATH",
+                format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
+            );
+
             if port_in_use(8000) {
                 println!("[Kiosk-Scholar] Backend already running on :8000 — skipping spawn");
-                return Ok(());
-            }
-
-            // Resolve the bundled backend.exe path.
-            // In production Tauri copies resources into the resource directory.
-            // We try two locations in order:
-            //   1. resource_dir()  — where Tauri copies bundled resources on install
-            //   2. exe parent dir  — works when running the raw .exe from target/release
-            let resource_dir = app.path().resource_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let exe_dir = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
-
-            let candidates = [
-                resource_dir.join("backend.exe"),
-                exe_dir.join("backend.exe"),
-            ];
-
-            let bundled = candidates.iter().find(|p| p.exists()).cloned();
-
-            let result = if let Some(backend_exe) = bundled {
-                // Production: run the bundled self-contained backend.exe
-                println!("[Kiosk-Scholar] Starting bundled backend: {:?}", backend_exe);
-                Command::new(&backend_exe)
-                    .current_dir(backend_exe.parent().unwrap_or(std::path::Path::new(".")))
-                    .spawn()
             } else {
-                // Dev: run uvicorn from the source tree
-                let backend_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .parent().unwrap()
-                    .parent().unwrap()
-                    .join("backend");
-                println!("[Kiosk-Scholar] Dev mode: starting uvicorn from {:?}", backend_dir);
-                // Try python / python3 / py in order
-                let python = ["python", "python3", "py"]
-                    .iter()
-                    .find(|&&p| Command::new(p).arg("--version").output().is_ok())
-                    .copied()
-                    .unwrap_or("python");
-                Command::new(python)
-                    .args(["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"])
-                    .current_dir(&backend_dir)
-                    .spawn()
-            };
+                let (backend_dir, python_path_extra) = if cfg!(debug_assertions) {
+                    // Dev: derive path from compile-time manifest location.
+                    // CARGO_MANIFEST_DIR = .../frontend/src-tauri
+                    let bdir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .unwrap() // src-tauri → frontend
+                        .parent()
+                        .unwrap() // frontend → project root
+                        .join("backend");
+                    (bdir, None::<std::path::PathBuf>)
+                } else {
+                    // Production: backend files are bundled as app resources.
+                    // They land at <App>.app/Contents/Resources/backend/
+                    let res = app.path()
+                        .resource_dir()
+                        .expect("Failed to resolve resource directory");
+                    let packages = res.join("backend").join("packages");
+                    (res.join("backend"), Some(packages))
+                };
 
-            match result {
-                Ok(child) => {
-                    *BACKEND.lock().unwrap() = Some(child);
-                    println!("[Kiosk-Scholar] Backend process spawned — waiting for readiness...");
-                    // Wait in a background thread so we don't block the UI
-                    std::thread::spawn(|| wait_for_backend(8000));
+                println!("[Kiosk-Scholar] Backend dir: {}", backend_dir.display());
+
+                let mut cmd = Command::new("python3");
+                cmd.args([
+                        "-m", "uvicorn",
+                        "main:app",
+                        "--host", "127.0.0.1",
+                        "--port", "8000",
+                    ])
+                    .current_dir(&backend_dir);
+                if let Some(pkgs) = python_path_extra {
+                    println!("[Kiosk-Scholar] PYTHONPATH: {}", pkgs.display());
+                    cmd.env("PYTHONPATH", pkgs);
                 }
-                Err(e) => eprintln!("[Kiosk-Scholar] Failed to start backend: {e}"),
+                match cmd.spawn() {
+                    Ok(child) => {
+                        *BACKEND.lock().unwrap() = Some(child);
+                        println!("[Kiosk-Scholar] Python backend started on :8000");
+                        std::thread::spawn(|| wait_for_backend(8000));
+                    }
+                    Err(e) => eprintln!("[Kiosk-Scholar] Failed to start backend: {e}"),
+                }
             }
 
             Ok(())
