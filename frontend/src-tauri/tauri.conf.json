@@ -5,7 +5,7 @@
   "identifier": "com.krisplabs.kiosk-scholar",
   "build": {
     "devUrl": "http://localhost:1420",
-    "frontendDist": "../src",
+    "frontendDist": "../dist",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src ipc: http://ipc.localhost http://127.0.0.1:8000 ws://localhost:1420 ws://127.0.0.1:1420; script-src 'self' blob: 'unsafe-inline'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; worker-src blob: 'self'"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src ipc: http://ipc.localhost http://127.0.0.1:8000; script-src 'self' blob: 'unsafe-inline'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; worker-src blob: 'self'"
     }
   },
   "bundle": {
@@ -31,6 +31,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "backend-x86_64-pc-windows-msvc.exe": "backend.exe"
+    }
   }
 }

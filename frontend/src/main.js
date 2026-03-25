@@ -50,6 +50,9 @@ async function getPdfFromCache(name) {
 
 // ── Backend & Ollama health check (self-scheduling) ──
 let _backendPollTimer = null;
+// In production the backend.exe takes a few seconds to start.
+// Track whether we have ever connected so we can show a "Starting…" state.
+let _backendEverOnline = false;
 
 async function checkBackend() {
   clearTimeout(_backendPollTimer);
@@ -58,13 +61,19 @@ async function checkBackend() {
   const ollamaLabel = document.getElementById("ollama-label");
   const ollamaModelLabel = document.getElementById("ollama-model-label");
 
+  // Show "Starting…" on very first poll so users know the app is loading
+  if (!_backendEverOnline && statusEl && statusEl.textContent === "Checking…") {
+    statusEl.textContent = "Starting…";
+  }
+
   let online = false;
   try {
     const res = await fetch(`${BACKEND_URL}/health`, {
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(5000),
     });
     const data = await res.json();
 
+    _backendEverOnline = true;
     statusEl.textContent = "Backend OK";
     statusEl.className = "pill pill-ok";
     online = true;
@@ -88,15 +97,17 @@ async function checkBackend() {
     }
   } catch (err) {
     console.error("Health check failed:", err.message);
-    statusEl.textContent = "Backend unreachable";
+    // If we've never connected, show "Starting…" (backend still booting)
+    // Once we've been online and lost connection, show "Unreachable"
+    statusEl.textContent = _backendEverOnline ? "Backend unreachable" : "Starting…";
     statusEl.className = "pill pill-error";
     if (ollamaEl) ollamaEl.className = "ollama-badge error";
-    if (ollamaLabel) ollamaLabel.textContent = "Ollama · unknown";
-    if (ollamaModelLabel) ollamaModelLabel.textContent = "Ollama · unknown";
+    if (ollamaLabel) ollamaLabel.textContent = _backendEverOnline ? "Ollama · unknown" : "Ollama · starting";
+    if (ollamaModelLabel) ollamaModelLabel.textContent = _backendEverOnline ? "Ollama · unknown" : "Ollama · starting";
   }
 
-  // Retry fast (3s) while offline; slow heartbeat (30s) once connected
-  _backendPollTimer = setTimeout(checkBackend, online ? 30_000 : 3_000);
+  // Retry fast (2s) while offline/starting; slow heartbeat (30s) once connected
+  _backendPollTimer = setTimeout(checkBackend, online ? 30_000 : 2_000);
 }
 
 // ── View switching ──
